@@ -1,0 +1,318 @@
+// Speed Core — database schema.
+//
+// Frontend-only mock data (lib/mock/*.ts, types/index.ts) stays in place and
+// keeps powering the UI until Phase 5+ wires real queries in — see CLAUDE.md
+// "Frontend Only" / "Mock Data". This schema is the real foundation those
+// queries will eventually read from; nothing here is consumed by the app yet.
+//
+// Currency: IQD (Iraqi dinar) is the project default across Product/Order/
+// Service/Booking — this targets the Iraqi market.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum StockStatus {
+  IN_STOCK
+  LOW_STOCK
+  OUT_OF_STOCK
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum ServiceStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+// ---------------------------------------------------------------------------
+// Product system: Category -> Subcategory -> Product -> ProductImage
+// ---------------------------------------------------------------------------
+
+model Category {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  nameAr    String?
+  image     String?
+  /// lucide-react export name (see lib/icon-map.ts)
+  icon      String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subcategories Subcategory[]
+  products      Product[]
+
+  @@map("categories")
+}
+
+model Subcategory {
+  id        String   @id @default(cuid())
+  slug      String
+  name      String
+  nameAr    String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  products Product[]
+
+  @@unique([categoryId, slug])
+  @@index([categoryId])
+  @@map("subcategories")
+}
+
+model Product {
+  id            String        @id @default(cuid())
+  slug          String        @unique
+  name          String
+  nameAr        String?
+  description   String
+  descriptionAr String?
+  /// Short bullet-point key features/specs shown on the product details page.
+  highlights    String[]      @default([])
+  highlightsAr  String[]      @default([])
+  price         Decimal       @db.Decimal(10, 2)
+  discountPrice Decimal?      @db.Decimal(10, 2)
+  currency      String        @default("IQD")
+  stockQuantity Int           @default(0)
+  stockStatus   StockStatus   @default(IN_STOCK)
+  status        ProductStatus @default(DRAFT)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  categoryId    String
+  category      Category     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  subcategoryId String?
+  subcategory   Subcategory? @relation(fields: [subcategoryId], references: [id], onDelete: SetNull)
+
+  images     ProductImage[]
+  orderItems OrderItem[]
+
+  @@index([categoryId])
+  @@index([subcategoryId])
+  @@index([status])
+  @@map("products")
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  url       String
+  altText   String?
+  altTextAr String?
+  isPrimary Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+// ---------------------------------------------------------------------------
+// Service system: ServiceCategory -> Subservice -> Service
+// ---------------------------------------------------------------------------
+
+model ServiceCategory {
+  id            String   @id @default(cuid())
+  slug          String   @unique
+  name          String
+  nameAr        String?
+  description   String
+  descriptionAr String?
+  /// lucide-react export name (see lib/icon-map.ts)
+  icon          String?
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  subservices Subservice[]
+
+  @@map("service_categories")
+}
+
+/// Grouping node under a ServiceCategory (e.g. "Boot & Power Issues" under
+/// "Laptop Maintenance"). Not bookable/priced itself — see Service.
+model Subservice {
+  id            String   @id @default(cuid())
+  slug          String
+  name          String
+  nameAr        String?
+  description   String?
+  descriptionAr String?
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  serviceCategoryId String
+  serviceCategory   ServiceCategory @relation(fields: [serviceCategoryId], references: [id], onDelete: Cascade)
+
+  services Service[]
+
+  @@unique([serviceCategoryId, slug])
+  @@index([serviceCategoryId])
+  @@map("subservices")
+}
+
+/// The bookable, priced leaf (e.g. "8GB RAM Upgrade" under "RAM & SSD Upgrade").
+model Service {
+  id              String        @id @default(cuid())
+  slug            String
+  name            String
+  nameAr          String?
+  description     String
+  descriptionAr   String?
+  price           Decimal?      @db.Decimal(10, 2)
+  currency        String?       @default("IQD")
+  durationMinutes Int?
+  image           String?
+  status          ServiceStatus @default(ACTIVE)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  subserviceId String
+  subservice   Subservice @relation(fields: [subserviceId], references: [id], onDelete: Restrict)
+
+  bookings Booking[]
+
+  @@unique([subserviceId, slug])
+  @@index([subserviceId])
+  @@index([status])
+  @@map("services")
+}
+
+// ---------------------------------------------------------------------------
+// Customer / commerce: Customer -> Order -> OrderItem -> Product
+//                       Customer -> Booking -> Service
+// ---------------------------------------------------------------------------
+
+/// Customer contact/business data only — deliberately separate from
+/// authentication (see CLAUDE.md "Do not create a new authentication
+/// system"). `authId` is an optional, unlinked hook for whatever auth
+/// provider gets wired in later; guest customers just leave it null.
+model Customer {
+  id           String   @id @default(cuid())
+  authId       String?  @unique
+  name         String
+  email        String   @unique
+  phone        String
+  /// scrypt password hash ("salt:hash", see lib/auth/password.ts). Null for
+  /// customers that only ever exist as a Checkout/Booking snapshot (guest
+  /// orders/bookings) and never registered a login — see the Customer
+  /// Account phase note in CLAUDE.md for why this isn't `authId`: `authId`
+  /// stays reserved for a future *external* auth provider, this is the
+  /// minimal first-party credential added to make that phase possible today.
+  passwordHash String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders   Order[]
+  bookings Booking[]
+
+  @@map("customers")
+}
+
+model Order {
+  id              String      @id @default(cuid())
+  orderNumber     String      @unique
+  status          OrderStatus @default(PENDING)
+  subtotal        Decimal     @db.Decimal(10, 2)
+  discountTotal   Decimal     @default(0) @db.Decimal(10, 2)
+  total           Decimal     @db.Decimal(10, 2)
+  currency        String      @default("IQD")
+  /// Flexible address snapshot (Checkout/Phase 7 isn't built yet, so no
+  /// dedicated Address table until real requirements exist).
+  shippingAddress Json?
+  notes           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  items OrderItem[]
+
+  @@index([customerId])
+  @@index([status])
+  @@map("orders")
+}
+
+model OrderItem {
+  id                  String   @id @default(cuid())
+  /// Preserves the product name at purchase time, independent of later edits.
+  productNameSnapshot String
+  /// Preserves the price actually paid, independent of the current Product price.
+  unitPrice           Decimal  @db.Decimal(10, 2)
+  quantity            Int
+  lineTotal           Decimal  @db.Decimal(10, 2)
+  createdAt           DateTime @default(now())
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+model Booking {
+  id                  String        @id @default(cuid())
+  bookingNumber       String        @unique
+  /// Preserves the service name/price at booking time, mirroring OrderItem.
+  serviceNameSnapshot String
+  priceSnapshot       Decimal?      @db.Decimal(10, 2)
+  status              BookingStatus @default(PENDING)
+  preferredDate       DateTime?     @db.Date
+  preferredTime       String?
+  notes               String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+
+  @@index([customerId])
+  @@index([serviceId])
+  @@index([status])
+  @@map("bookings")
+}

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 360" width="480" height="360" role="img" aria-hidden="true">
+  <defs>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="1.5" cy="1.5" r="1.5" fill="#27272A" />
+    </pattern>
+  </defs>
+  <rect width="480" height="360" rx="28" fill="#151515" />
+  <rect width="480" height="360" rx="28" fill="url(#dots)" />
+  <g stroke="#22C55E" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.9">
+    <path d="M24,44 L24,24 L44,24" />
+    <path d="M436,24 L456,24 L456,44" />
+    <path d="M24,316 L24,336 L44,336" />
+    <path d="M436,336 L456,336 L456,316" />
+  </g>
+  <g>
+    <rect x="110" y="66" width="260" height="160" rx="12" fill="#52525B" />
+    <rect x="122" y="78" width="236" height="136" rx="6" fill="#0A0A0A" />
+    <circle cx="240" cy="72" r="3" fill="#27272A" />
+    <line x1="140" y1="96" x2="300" y2="96" stroke="#71717A" stroke-width="4" stroke-linecap="round" />
+    <rect x="140" y="164" width="14" height="30" fill="#71717A" rx="2" />
+    <rect x="160" y="144" width="14" height="50" fill="#22C55E" rx="2" />
+    <rect x="180" y="156" width="14" height="38" fill="#71717A" rx="2" />
+    <rect x="200" y="134" width="14" height="60" fill="#27272A" rx="2" />
+    <path d="M220,230 L260,230 L250,268 L230,268 Z" fill="#27272A" />
+    <rect x="190" y="268" width="100" height="12" rx="6" fill="#52525B" />
+  </g>
+</svg>
