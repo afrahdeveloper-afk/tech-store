@@ -1,0 +1,58 @@
+name: CI
+
+# Runs on every push/PR to the main branch, plus manual triggers — validates
+# exactly the three checks this project has run before every meaningful
+# change throughout its whole history (see CLAUDE.md): type-check, lint,
+# and a full production build (which also exercises `prisma generate` via
+# this repo's `postinstall` script).
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Type-check, lint, and build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      # `npm ci` — deterministic install; also runs this repo's `postinstall`
+      # (`prisma generate`), so the generated client exists before any step
+      # below needs it.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      # `next build` performs real static generation for the product/service
+      # detail pages and `/sitemap.xml`, which query the live database (the
+      # same thing a real deployment's build step does) — these secrets must
+      # be configured under Settings → Secrets and variables → Actions for
+      # this step to succeed. See the repo's `.env.example` for what each
+      # one is and how to generate it.
+      - name: Build
+        run: npm run build
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          ADMIN_SESSION_SECRET: ${{ secrets.ADMIN_SESSION_SECRET }}
+          NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_PRODUCTS_BUCKET: ${{ secrets.SUPABASE_PRODUCTS_BUCKET }}
+          SUPABASE_BOOKINGS_BUCKET: ${{ secrets.SUPABASE_BOOKINGS_BUCKET }}
