@@ -130,6 +130,12 @@ model Product {
 model ProductImage {
   id        String   @id @default(cuid())
   url       String
+  /// Supabase Storage object key (Global Image System) — needed to delete the
+  /// underlying file when this row is deleted/replaced. Nullable: rows
+  /// created before real uploads existed (a manually typed URL, or one of
+  /// the built-in icon illustrations under public/images/products/) have no
+  /// corresponding storage object to clean up.
+  path      String?
   altText   String?
   altTextAr String?
   isPrimary Boolean  @default(false)
@@ -246,6 +252,29 @@ model Customer {
   @@map("customers")
 }
 
+// ---------------------------------------------------------------------------
+// Admin: a completely separate identity/auth boundary from Customer — see
+// CLAUDE.md's Phase 12 (Admin Dashboard) Security rules. Never merged with
+// Customer: a Customer row is created by public self-registration and by
+// anonymous Checkout/Booking upserts, which is the wrong trust surface for
+// staff access. `Admin` has its own table, its own session cookie
+// (`lib/auth/admin-session.ts`, `ADMIN_SESSION_SECRET`), and its own login
+// route (`/admin/login`) — deliberately no public admin self-registration.
+// ---------------------------------------------------------------------------
+
+model Admin {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  /// scrypt password hash ("salt:hash", reusing lib/auth/password.ts — the
+  /// same hashing utility Customer uses, not a shared credential/table).
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("admins")
+}
+
 model Order {
   id              String      @id @default(cuid())
   orderNumber     String      @unique
@@ -311,8 +340,69 @@ model Booking {
   serviceId String
   service   Service @relation(fields: [serviceId], references: [id], onDelete: Restrict)
 
+  images BookingImage[]
+
   @@index([customerId])
   @@index([serviceId])
   @@index([status])
   @@map("bookings")
+}
+
+/// Customer-attached photos for a Booking (Global Image System) — e.g. a
+/// photo of the device or issue, uploaded while filling out the booking form
+/// and attached once the Booking is created (see createBooking). Read-only
+/// for Admin (view only, no admin upload); the customer who owns the
+/// Booking can view them on their own Account page.
+model BookingImage {
+  id        String   @id @default(cuid())
+  /// Deprecated as of the Security Correction (Sept 2026): booking photos now
+  /// live in a PRIVATE Supabase Storage bucket, so there is no permanent
+  /// public URL to store — this column is always null on rows created since.
+  /// Nullable only to keep any pre-existing (public-bucket-era) row valid.
+  /// Never read this for display — always derive a fresh, short-lived signed
+  /// URL from `path` via `lib/storage.ts`'s `createBookingImageSignedUrl(s)`
+  /// at render time, after checking the viewer is authorized (see
+  /// `lib/account-data.ts`'s `getCustomerBooking` / `lib/admin-data.ts`'s
+  /// `getAdminBookingById`).
+  url       String?
+  /// Supabase Storage object key (private `speedcore-bookings` bucket) — needed to delete the underlying file if this row is ever removed, and to mint a signed URL for display.
+  path      String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  bookingId String
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@map("booking_images")
+}
+
+// ---------------------------------------------------------------------------
+// Store-wide settings (Admin Dashboard Phase 14) — a singleton row. Added
+// only after the Admin Settings page (Phase 12) shipped as an honest partial
+// (admin profile only, no fake persistence) — this is the smallest schema
+// that covers what CLAUDE.md's original brief listed as plausible ("Store/
+// site information, Contact information, Localization/Currency, General
+// configuration"). No notification/appearance preferences: nothing in this
+// project has such preferences to configure yet, so none were invented.
+// ---------------------------------------------------------------------------
+
+/// Always exactly one row — see `lib/settings-data.ts`'s
+/// `getOrCreateStoreSettings`, which creates it with sensible defaults on
+/// first read if missing, rather than requiring a separate seed step.
+model StoreSettings {
+  id               String   @id @default(cuid())
+  storeName        String   @default("Speed Core")
+  storeNameAr      String?
+  contactEmail     String   @default("support@speedcore.example")
+  contactPhone     String   @default("+966 11 234 5678")
+  contactAddress   String?
+  contactAddressAr String?
+  /// ISO 4217 currency code — matches `Product.currency`/`Order.currency`'s existing convention (a free-text default, not a DB enum).
+  currency         String   @default("IQD")
+  maintenanceMode  Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("store_settings")
 }

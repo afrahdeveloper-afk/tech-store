@@ -9,6 +9,7 @@ import type { CartItemIssue } from "@/lib/cart";
 import type { Dictionary, Lang } from "@/lib/i18n/translations";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { ImagePlaceholder } from "@/components/shared/image-placeholder";
 
 /**
  * One `/cart` row. A Client Component (quantity stepper + remove need
@@ -62,7 +63,11 @@ export function CartLineItem({
         href={`/products/${item.slug}`}
         className="relative block size-20 shrink-0 self-start overflow-hidden rounded-lg border border-border bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring sm:self-center"
       >
-        <Image src={item.image} alt={name} fill sizes="80px" className="object-contain p-2" />
+        {item.image ? (
+          <Image src={item.image} alt={name} fill sizes="80px" className="object-contain p-2" />
+        ) : (
+          <ImagePlaceholder />
+        )}
       </Link>
 
       <div className="flex flex-1 flex-col gap-1.5">

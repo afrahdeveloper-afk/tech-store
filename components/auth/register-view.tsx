@@ -6,8 +6,16 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, Loader2 } from "lucide-react";
 
 import { useLanguage } from "@/components/providers/language-provider";
-import { isValidEmail, isValidPhone } from "@/lib/validation";
-import { register, type RegisterErrorCode } from "@/app/register/actions";
+import {
+  isValidEmail,
+  isValidPhone,
+  exceedsMaxLength,
+  MAX_NAME_LENGTH,
+  MAX_EMAIL_LENGTH,
+  MAX_PHONE_LENGTH,
+  MAX_PASSWORD_LENGTH,
+} from "@/lib/validation";
+import { register, type RegisterErrorCode } from "@/app/(site)/register/actions";
 import { Container } from "@/components/ui/container";
 import { Button } from "@/components/ui/button";
 import { Caption, Display, Body } from "@/components/ui/typography";
@@ -37,6 +45,7 @@ export function RegisterView() {
 
   const errorMessage: Record<RegisterErrorCode, string> = {
     "missing-fields": t.auth.errorRequired,
+    "invalid-length": t.auth.errorTooLong,
     "invalid-email": t.auth.errorEmail,
     "invalid-phone": t.auth.errorPhone,
     "weak-password": t.auth.errorWeakPassword,
@@ -47,12 +56,16 @@ export function RegisterView() {
   const validate = (): FieldErrors => {
     const errors: FieldErrors = {};
     if (!name.trim()) errors.name = t.auth.errorRequired;
+    else if (exceedsMaxLength(name.trim(), MAX_NAME_LENGTH)) errors.name = t.auth.errorTooLong;
     if (!email.trim()) errors.email = t.auth.errorRequired;
+    else if (exceedsMaxLength(email.trim(), MAX_EMAIL_LENGTH)) errors.email = t.auth.errorTooLong;
     else if (!isValidEmail(email)) errors.email = t.auth.errorEmail;
     if (!phone.trim()) errors.phone = t.auth.errorRequired;
+    else if (exceedsMaxLength(phone.trim(), MAX_PHONE_LENGTH)) errors.phone = t.auth.errorTooLong;
     else if (!isValidPhone(phone)) errors.phone = t.auth.errorPhone;
     if (!password) errors.password = t.auth.errorRequired;
     else if (password.length < MIN_PASSWORD_LENGTH) errors.password = t.auth.errorWeakPassword;
+    else if (exceedsMaxLength(password, MAX_PASSWORD_LENGTH)) errors.password = t.auth.errorTooLong;
     return errors;
   };
 
@@ -98,6 +111,7 @@ export function RegisterView() {
           onChange={setName}
           error={fieldErrors.name}
           autoComplete="name"
+          maxLength={MAX_NAME_LENGTH}
         />
         <FormField
           id="email"
@@ -109,6 +123,7 @@ export function RegisterView() {
           error={fieldErrors.email}
           autoComplete="email"
           dir="ltr"
+          maxLength={MAX_EMAIL_LENGTH}
         />
         <FormField
           id="phone"
@@ -120,6 +135,7 @@ export function RegisterView() {
           error={fieldErrors.phone}
           autoComplete="tel"
           dir="ltr"
+          maxLength={MAX_PHONE_LENGTH}
         />
         <FormField
           id="password"
@@ -131,6 +147,7 @@ export function RegisterView() {
           error={fieldErrors.password}
           autoComplete="new-password"
           dir="ltr"
+          maxLength={MAX_PASSWORD_LENGTH}
         />
 
         {status === "error" && errorCode ? (

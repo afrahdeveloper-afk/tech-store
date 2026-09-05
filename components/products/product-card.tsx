@@ -7,8 +7,8 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Body, Caption, H3, Small } from "@/components/ui/typography";
-import { mockCategories } from "@/lib/mock/categories";
 import { AddToCartButton } from "@/components/cart/add-to-cart-button";
+import { ImagePlaceholder } from "@/components/shared/image-placeholder";
 
 /**
  * Reusable product card — built for the homepage's Featured Products
@@ -17,12 +17,33 @@ import { AddToCartButton } from "@/components/cart/add-to-cart-button";
  * discount, stock state, Add to Cart, View Details). No `useLanguage()`
  * here so it stays usable from either a client or (later) server list —
  * the resolved language/dictionary are passed down as props instead.
+ *
+ * `priority` (perf audit P1-3, default `false`): every grid that renders
+ * this card is responsible for passing `priority` on the one card that's
+ * actually above the fold (its own first item, index 0) — this component
+ * has no way to know its own position in a grid, so it can't decide that
+ * itself. Never default this to `true`; marking every card priority would
+ * make the browser front-load every product image at once instead of just
+ * the LCP candidate, working against the image it's meant to help.
  */
-export function ProductCard({ product, lang, t }: { product: Product; lang: Lang; t: Dictionary }) {
-  const category = mockCategories.find((c) => c.id === product.categoryId);
+export function ProductCard({
+  product,
+  lang,
+  t,
+  priority = false,
+}: {
+  product: Product;
+  lang: Lang;
+  t: Dictionary;
+  priority?: boolean;
+}) {
   const name = lang === "ar" ? product.nameAr ?? product.name : product.name;
   const description = lang === "ar" ? product.descriptionAr ?? product.description : product.description;
-  const categoryName = category ? (lang === "ar" ? category.nameAr ?? category.name : category.name) : null;
+  const categoryName = product.categoryName
+    ? lang === "ar"
+      ? (product.categoryNameAr ?? product.categoryName)
+      : product.categoryName
+    : null;
   const hasDiscount = typeof product.discountPrice === "number";
   const isOutOfStock = product.stockState === "out-of-stock";
 
@@ -39,18 +60,27 @@ export function ProductCard({ product, lang, t }: { product: Product; lang: Lang
     <div className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/40 hover:shadow-lg hover:shadow-black/30">
       <Link
         href={`/products/${product.slug}`}
-        className="relative block aspect-[4/3] overflow-hidden bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+        className="relative block aspect-square overflow-hidden bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
       >
-        <Image
-          src={product.image}
-          alt={name}
-          fill
-          sizes="(min-width: 1024px) 320px, (min-width: 640px) 45vw, 90vw"
-          className={cn(
-            "object-contain p-4 transition-transform duration-300 group-hover:scale-[1.03]",
-            isOutOfStock && "opacity-60 grayscale-[0.3]"
-          )}
-        />
+        {product.image ? (
+          <Image
+            src={product.image}
+            alt={name}
+            fill
+            sizes="(min-width: 1024px) 320px, (min-width: 640px) 45vw, 90vw"
+            priority={priority}
+            className={cn(
+              // Fixed square frame + object-contain (never `cover`): a
+              // product photo must stay fully visible and never crop, so
+              // the container's aspect ratio is what's fixed here, not the
+              // source image's own dimensions (see Global Image System).
+              "object-contain p-3 transition-transform duration-300 group-hover:scale-[1.03] sm:p-4 lg:p-5",
+              isOutOfStock && "opacity-60 grayscale-[0.3]"
+            )}
+          />
+        ) : (
+          <ImagePlaceholder />
+        )}
         {hasDiscount && !isOutOfStock ? (
           <Badge variant="accent" className="absolute start-3 top-3">
             {t.products.discountBadge}

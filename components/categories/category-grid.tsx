@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
-import { mockCategories } from "@/lib/mock/categories";
+import type { Category } from "@/types";
 import { useLanguage } from "@/components/providers/language-provider";
 import { Container } from "@/components/ui/container";
 import { SectionHeading } from "@/components/shared/section-heading";
 import { Reveal } from "@/components/shared/reveal";
 import { CategoryCard } from "./category-card";
 
-export function CategoryGrid() {
+/** `categories` is fetched server-side (real Prisma query, Phase 12b) by `app/(site)/page.tsx` and passed down — this is a Client Component (translated copy via `useLanguage()`). */
+export function CategoryGrid({ categories }: { categories: Category[] }) {
   const { t, lang } = useLanguage();
 
   return (
@@ -32,7 +33,7 @@ export function CategoryGrid() {
         </div>
 
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-          {mockCategories.map((category, index) => (
+          {categories.map((category, index) => (
             <Reveal key={category.id} delayMs={index * 60}>
               <CategoryCard
                 category={category}

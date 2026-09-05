@@ -6,14 +6,23 @@ import { AlertTriangle, Ban, CalendarClock, CheckCircle2, Clock, Loader2 } from 
 
 import type { Service, ServiceCategory, Subservice } from "@/types";
 import { useLanguage } from "@/components/providers/language-provider";
-import { isValidEmail, isValidPhone } from "@/lib/validation";
-import { createBooking, type BookingErrorCode } from "@/app/booking/actions";
+import {
+  isValidEmail,
+  isValidPhone,
+  exceedsMaxLength,
+  MAX_NAME_LENGTH,
+  MAX_EMAIL_LENGTH,
+  MAX_PHONE_LENGTH,
+  MAX_NOTES_LENGTH,
+} from "@/lib/validation";
+import { createBooking, type BookingErrorCode, type BookingAttachmentInput } from "@/app/(site)/booking/actions";
 import { Container } from "@/components/ui/container";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Caption, Display, Body, H2, Small, Label } from "@/components/ui/typography";
 import { EmptyState } from "@/components/shared/empty-state";
 import { FormField } from "@/components/shared/form-field";
+import { BookingImageUpload } from "@/components/booking/booking-image-upload";
 
 export type BookingResolution =
   | { status: "none" }
@@ -27,6 +36,7 @@ interface FieldErrors {
   customerPhone?: string;
   preferredDate?: string;
   preferredTime?: string;
+  notes?: string;
 }
 
 function todayIsoDate(): string {
@@ -52,6 +62,7 @@ export function BookingView({ resolution }: { resolution: BookingResolution }) {
   const [preferredDate, setPreferredDate] = React.useState("");
   const [preferredTime, setPreferredTime] = React.useState("");
   const [notes, setNotes] = React.useState("");
+  const [attachments, setAttachments] = React.useState<BookingAttachmentInput[]>([]);
   const [fieldErrors, setFieldErrors] = React.useState<FieldErrors>({});
   const [status, setStatus] = React.useState<"idle" | "submitting" | "error" | "success">("idle");
   const [errorCode, setErrorCode] = React.useState<BookingErrorCode | null>(null);
@@ -117,24 +128,31 @@ export function BookingView({ resolution }: { resolution: BookingResolution }) {
     "invalid-service": t.booking.notFoundDescription,
     unavailable: t.booking.unavailableDescription,
     "missing-fields": t.booking.errorRequired,
+    "invalid-length": t.booking.errorTooLong,
     "invalid-email": t.booking.errorEmail,
     "invalid-phone": t.booking.errorPhone,
     "invalid-date": t.booking.errorDate,
     "past-date": t.booking.errorPastDate,
     "invalid-time": t.booking.errorTime,
+    "invalid-attachments": t.booking.errorAttachments,
+    maintenance: t.booking.errorMaintenance,
     "server-error": t.booking.submissionErrorDescription,
   };
 
   const validate = (): FieldErrors => {
     const errors: FieldErrors = {};
     if (!customerName.trim()) errors.customerName = t.booking.errorRequired;
+    else if (exceedsMaxLength(customerName.trim(), MAX_NAME_LENGTH)) errors.customerName = t.booking.errorTooLong;
     if (!customerEmail.trim()) errors.customerEmail = t.booking.errorRequired;
+    else if (exceedsMaxLength(customerEmail.trim(), MAX_EMAIL_LENGTH)) errors.customerEmail = t.booking.errorTooLong;
     else if (!isValidEmail(customerEmail)) errors.customerEmail = t.booking.errorEmail;
     if (!customerPhone.trim()) errors.customerPhone = t.booking.errorRequired;
+    else if (exceedsMaxLength(customerPhone.trim(), MAX_PHONE_LENGTH)) errors.customerPhone = t.booking.errorTooLong;
     else if (!isValidPhone(customerPhone)) errors.customerPhone = t.booking.errorPhone;
     if (!preferredDate) errors.preferredDate = t.booking.errorDate;
     else if (preferredDate < todayIsoDate()) errors.preferredDate = t.booking.errorPastDate;
     if (!preferredTime) errors.preferredTime = t.booking.errorTime;
+    if (exceedsMaxLength(notes.trim(), MAX_NOTES_LENGTH)) errors.notes = t.booking.errorTooLong;
     return errors;
   };
 
@@ -154,6 +172,7 @@ export function BookingView({ resolution }: { resolution: BookingResolution }) {
       preferredDate,
       preferredTime,
       notes: notes.trim() || undefined,
+      attachments,
     });
 
     if (result.success) {
@@ -234,6 +253,7 @@ export function BookingView({ resolution }: { resolution: BookingResolution }) {
             onChange={setCustomerName}
             error={fieldErrors.customerName}
             autoComplete="name"
+            maxLength={MAX_NAME_LENGTH}
           />
           <FormField
             id="customerEmail"
@@ -245,6 +265,7 @@ export function BookingView({ resolution }: { resolution: BookingResolution }) {
             error={fieldErrors.customerEmail}
             autoComplete="email"
             dir="ltr"
+            maxLength={MAX_EMAIL_LENGTH}
           />
           <FormField
             id="customerPhone"
@@ -256,6 +277,7 @@ export function BookingView({ resolution }: { resolution: BookingResolution }) {
             error={fieldErrors.customerPhone}
             autoComplete="tel"
             dir="ltr"
+            maxLength={MAX_PHONE_LENGTH}
           />
 
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
@@ -285,7 +307,21 @@ export function BookingView({ resolution }: { resolution: BookingResolution }) {
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
               placeholder={t.booking.notesPlaceholder}
+              maxLength={MAX_NOTES_LENGTH}
+              aria-invalid={Boolean(fieldErrors.notes)}
+              aria-describedby={fieldErrors.notes ? "notes-error" : undefined}
             />
+            {fieldErrors.notes ? (
+              <p id="notes-error" role="alert" className="text-xs text-destructive">
+                {fieldErrors.notes}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>{t.booking.attachmentsLabel}</Label>
+            <Small className="text-muted-foreground">{t.booking.attachmentsHint}</Small>
+            <BookingImageUpload value={attachments} onChange={setAttachments} disabled={status === "submitting"} />
           </div>
 
           {status === "error" && errorCode ? (
@@ -326,13 +362,15 @@ export function BookingView({ resolution }: { resolution: BookingResolution }) {
               {service.price.toLocaleString(lang === "ar" ? "ar-SA" : "en-US")} {service.currency}
             </span>
           </div>
-          <div className="flex items-center justify-between border-t border-border pt-4">
-            <Small className="text-muted-foreground">{t.booking.durationLabel}</Small>
-            <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-              <Clock className="size-4" aria-hidden="true" />
-              {service.durationMinutes} {t.booking.minutesLabel}
-            </span>
-          </div>
+          {service.durationMinutes != null ? (
+            <div className="flex items-center justify-between border-t border-border pt-4">
+              <Small className="text-muted-foreground">{t.booking.durationLabel}</Small>
+              <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                <Clock className="size-4" aria-hidden="true" />
+                {service.durationMinutes} {t.booking.minutesLabel}
+              </span>
+            </div>
+          ) : null}
         </div>
       </form>
     </Container>

@@ -30,3 +30,21 @@ export function verifyPassword(password: string, stored: string): boolean {
 
   return timingSafeEqual(storedBuffer, suppliedBuffer);
 }
+
+/**
+ * Login-timing-safety fixture (Stage 6 — Authentication Security audit): a
+ * fixed, valid `hashPassword` output with no corresponding real account.
+ * `login`/`adminLogin` run `verifyPassword` against THIS whenever the
+ * submitted email doesn't match any row, instead of short-circuiting before
+ * ever calling it — `verifyPassword` -> `scryptSync` costs real, measurable
+ * CPU time (single-digit-to-tens of ms), so skipping it for an unknown email
+ * makes that branch measurably faster to respond than "email exists, wrong
+ * password" (which always calls it). That response-time gap is a real
+ * account-enumeration side channel independent of the two branches already
+ * returning the same `invalid-credentials` error code — timing, not just the
+ * response body, has to be equalized. Computed once at module load (paying
+ * one scrypt call at server start, not per request); its own salt/hash have
+ * no meaning beyond "a well-formed value `verifyPassword` will spend the same
+ * effort comparing against."
+ */
+export const DUMMY_PASSWORD_HASH = hashPassword("speedcore-timing-safety-fixture-not-a-real-account");

@@ -78,13 +78,15 @@ export function ServiceDetailView({
               {service.price.toLocaleString(lang === "ar" ? "ar-SA" : "en-US")} {service.currency}
             </span>
           </div>
-          <div className="flex items-center justify-between border-t border-border pt-4">
-            <Small className="text-muted-foreground">{t.services.durationLabel}</Small>
-            <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-              <Clock className="size-4" aria-hidden="true" />
-              {service.durationMinutes} {t.services.minutesLabel}
-            </span>
-          </div>
+          {service.durationMinutes != null ? (
+            <div className="flex items-center justify-between border-t border-border pt-4">
+              <Small className="text-muted-foreground">{t.services.durationLabel}</Small>
+              <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                <Clock className="size-4" aria-hidden="true" />
+                {service.durationMinutes} {t.services.minutesLabel}
+              </span>
+            </div>
+          ) : null}
 
           {service.available ? (
             <Button asChild size="lg" className="mt-1">

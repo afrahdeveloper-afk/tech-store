@@ -25,7 +25,7 @@ export function ProductsSkeleton({ count = 8 }: { count?: number }) {
     >
       {Array.from({ length: count }).map((_, index) => (
         <div key={index} className="flex flex-col overflow-hidden rounded-xl border border-border bg-card">
-          <div className="aspect-[4/3] animate-pulse bg-muted" />
+          <div className="aspect-square animate-pulse bg-muted" />
           <div className="flex flex-col gap-2 p-4">
             <div className={cn("h-3 w-16 animate-pulse rounded-full bg-muted")} />
             <div className="h-4 w-3/4 animate-pulse rounded-full bg-muted" />

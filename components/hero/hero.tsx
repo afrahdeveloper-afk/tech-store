@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, BadgeCheck } from "lucide-react";
 
@@ -8,6 +7,7 @@ import { useLanguage } from "@/components/providers/language-provider";
 import { Container } from "@/components/ui/container";
 import { Button } from "@/components/ui/button";
 import { Caption, Display, Body } from "@/components/ui/typography";
+import { HeroVisual } from "@/components/hero/hero-visual";
 
 /**
  * First-screen hero. Client Component for translated copy (see
@@ -53,14 +53,7 @@ export function Hero() {
         </div>
 
         <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 relative mx-auto w-full max-w-md motion-safe:duration-700 lg:max-w-none">
-          <Image
-            src="/images/hero.svg"
-            alt=""
-            width={640}
-            height={560}
-            priority
-            className="h-auto w-full"
-          />
+          <HeroVisual />
         </div>
       </Container>
     </section>

@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { ShoppingCart } from "lucide-react";
 
+import type { Product } from "@/types";
 import { useLanguage } from "@/components/providers/language-provider";
 import { useCart } from "@/components/providers/cart-provider";
-import { mockProducts } from "@/lib/mock/products";
 import { findCartItemIssue } from "@/lib/cart";
 import { Container } from "@/components/ui/container";
 import { Button } from "@/components/ui/button";
@@ -18,13 +18,16 @@ import { CartLineItem } from "@/components/cart/cart-line-item";
  * only exists client-side (`localStorage`, see `cart-provider.tsx`), so
  * there's nothing here a Server Component could usefully render first (the
  * route shell `app/cart/page.tsx` still stays a Server Component for its
- * static metadata, per the Architecture Rules).
+ * static metadata, per the Architecture Rules — and, since Phase 12b.1,
+ * also fetches `products` (a real Prisma query) for this component to
+ * revalidate cart items against, since this Client Component can't call
+ * Prisma itself.
  */
-export function CartView() {
+export function CartView({ products }: { products: Product[] }) {
   const { t, lang } = useLanguage();
   const { items, subtotal, updateQuantity, removeItem } = useCart();
 
-  const issues = items.map((item) => findCartItemIssue(item, mockProducts));
+  const issues = items.map((item) => findCartItemIssue(item, products));
   const hasBlockingIssue = issues.some((issue) => issue !== null);
 
   const formatPrice = (value: number) => value.toLocaleString(lang === "ar" ? "ar-SA" : "en-US");

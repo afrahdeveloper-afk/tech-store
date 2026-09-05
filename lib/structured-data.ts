@@ -36,7 +36,9 @@ export function buildProductJsonLd(product: Product) {
     "@type": "Product",
     name: product.name,
     description: product.description,
-    image: `${SITE_URL}${product.image}`,
+    // Omit the field entirely when there's no real photo — a fabricated
+    // `${SITE_URL}` (no path) "image" would be worse than none at all.
+    ...(product.image ? { image: `${SITE_URL}${product.image}` } : {}),
     url,
     offers: {
       "@type": "Offer",

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 360" width="480" height="360" role="img" aria-hidden="true">
+  <defs>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="1.5" cy="1.5" r="1.5" fill="#27272A" />
+    </pattern>
+  </defs>
+  <rect width="480" height="360" rx="28" fill="#151515" />
+  <rect width="480" height="360" rx="28" fill="url(#dots)" />
+  <g stroke="#22C55E" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.9">
+    <path d="M24,44 L24,24 L44,24" />
+    <path d="M436,24 L456,24 L456,44" />
+    <path d="M24,316 L24,336 L44,336" />
+    <path d="M436,336 L456,336 L456,316" />
+  </g>
+  <g>
+    <rect x="204" y="118" width="72" height="132" rx="36" fill="#52525B" />
+    <line x1="240" y1="118" x2="240" y2="168" stroke="#27272A" stroke-width="3" />
+    <rect x="233" y="138" width="14" height="26" rx="7" fill="#22C55E" />
+    <path d="M204,168 Q240,178 276,168" stroke="#27272A" stroke-width="3" fill="none" opacity="0.75" />
+  </g>
+</svg>

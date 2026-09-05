@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
-import { mockServiceCategories } from "@/lib/mock/services";
+import type { ServiceCategory } from "@/types";
 import { useLanguage } from "@/components/providers/language-provider";
 import { Container } from "@/components/ui/container";
 import { SectionHeading } from "@/components/shared/section-heading";
 import { Reveal } from "@/components/shared/reveal";
 import { ServiceCard } from "./service-card";
 
-export function ServicesOverview() {
+/** `serviceCategories` is fetched server-side (real Prisma query, Phase 12b) by `app/(site)/page.tsx` and passed down — this is a Client Component (translated copy via `useLanguage()`). */
+export function ServicesOverview({ serviceCategories }: { serviceCategories: ServiceCategory[] }) {
   const { t, lang } = useLanguage();
 
   return (
@@ -32,7 +33,7 @@ export function ServicesOverview() {
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {mockServiceCategories.map((service, index) => (
+          {serviceCategories.map((service, index) => (
             <Reveal key={service.id} delayMs={index * 40}>
               <ServiceCard
                 service={service}

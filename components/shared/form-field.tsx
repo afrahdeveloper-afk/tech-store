@@ -19,6 +19,7 @@ export function FormField({
   autoComplete,
   dir,
   min,
+  maxLength,
 }: {
   id: string;
   label: string;
@@ -30,6 +31,8 @@ export function FormField({
   autoComplete?: string;
   dir?: "ltr" | "rtl";
   min?: string;
+  /** UX-only hint (native `maxLength`) — never the source of truth; the matching Server Action re-validates length itself (see `lib/validation.ts`). */
+  maxLength?: number;
 }) {
   const errorId = `${id}-error`;
   return (
@@ -44,11 +47,12 @@ export function FormField({
         autoComplete={autoComplete}
         dir={dir}
         min={min}
+        maxLength={maxLength}
         aria-invalid={Boolean(error)}
         aria-describedby={error ? errorId : undefined}
       />
       {error ? (
-        <p id={errorId} role="alert" className="text-xs text-destructive">
+        <p id={errorId} role="alert" className="motion-safe:animate-in motion-safe:fade-in motion-safe:duration-150 text-xs text-destructive">
           {error}
         </p>
       ) : null}

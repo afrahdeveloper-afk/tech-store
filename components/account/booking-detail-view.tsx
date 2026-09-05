@@ -4,6 +4,7 @@ import type { BookingDetail } from "@/lib/account-data";
 import { useLanguage } from "@/components/providers/language-provider";
 import { Container } from "@/components/ui/container";
 import { Breadcrumb } from "@/components/shared/breadcrumb";
+import { ImageGalleryGrid } from "@/components/shared/image-gallery-grid";
 import { StatusBadge } from "@/components/account/status-badge";
 import { StatusTimeline } from "@/components/account/status-timeline";
 import { Caption, Display, H2, Small, Label } from "@/components/ui/typography";
@@ -104,6 +105,12 @@ export function BookingDetailView({ booking }: { booking: BookingDetail }) {
             <div className="flex flex-col gap-1 border-t border-border pt-4">
               <Label>{t.accountBookingDetails.notesLabel}</Label>
               <p className="text-sm text-muted-foreground">{booking.notes}</p>
+            </div>
+          ) : null}
+          {booking.images.length > 0 ? (
+            <div className="flex flex-col gap-2 border-t border-border pt-4">
+              <Label>{t.accountBookingDetails.photosHeading}</Label>
+              <ImageGalleryGrid images={booking.images} altPrefix={serviceName} groupLabel={t.accountBookingDetails.photosHeading} />
             </div>
           ) : null}
         </div>

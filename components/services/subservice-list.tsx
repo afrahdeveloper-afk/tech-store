@@ -3,9 +3,8 @@
 import * as React from "react";
 import { ChevronDown, Wrench } from "lucide-react";
 
-import type { Subservice } from "@/types";
+import type { Service, Subservice } from "@/types";
 import type { Dictionary, Lang } from "@/lib/i18n/translations";
-import { mockServiceItems } from "@/lib/mock/service-items";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ServiceItemCard } from "./service-item-card";
@@ -16,15 +15,30 @@ import { ServiceItemCard } from "./service-item-card";
  * reveal its actual bookable `Service`s (`ServiceItemCard`). One subservice
  * open at a time within a category, matching CLAUDE.md's "avoid unnecessary
  * animations… subtle transitions only where they improve usability".
+ *
+ * `services` (the full flat list, fetched server-side — real Prisma query,
+ * Phase 12b) is passed down from `ServiceCategoriesExplorer`, same as
+ * `subservices` — this component filters it client-side exactly like it
+ * used to filter `mockServiceItems`.
  */
-export function SubserviceList({ subservices, lang, t }: { subservices: Subservice[]; lang: Lang; t: Dictionary }) {
+export function SubserviceList({
+  subservices,
+  services,
+  lang,
+  t,
+}: {
+  subservices: Subservice[];
+  services: Service[];
+  lang: Lang;
+  t: Dictionary;
+}) {
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
 
   return (
     <div className="flex flex-col gap-3">
       {subservices.map((subservice) => {
         const name = lang === "ar" ? subservice.nameAr ?? subservice.name : subservice.name;
-        const items = mockServiceItems.filter((service) => service.subserviceId === subservice.id);
+        const items = services.filter((service) => service.subserviceId === subservice.id);
         const isOpen = expandedId === subservice.id;
         const panelId = `subservice-panel-${subservice.id}`;
 

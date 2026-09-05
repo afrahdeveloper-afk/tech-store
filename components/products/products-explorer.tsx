@@ -4,11 +4,12 @@ import * as React from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, PackageSearch } from "lucide-react";
 
+import type { Category, Subcategory } from "@/types";
 import { useLanguage } from "@/components/providers/language-provider";
-import { mockCategories } from "@/lib/mock/categories";
-import { mockSubcategories } from "@/lib/mock/subcategories";
-import { fetchProducts, type ProductQueryResult, type ProductSort } from "@/lib/mock/fetch-products";
+import { fetchProducts } from "@/app/(site)/products/actions";
+import type { ProductQueryResult, ProductSort } from "@/lib/products-data";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
+import { parsePageParam } from "@/lib/pagination";
 import { ProductsToolbar } from "@/components/products/products-toolbar";
 import { ProductsGrid } from "@/components/products/products-grid";
 import { ProductsSkeleton } from "@/components/products/products-skeleton";
@@ -30,8 +31,18 @@ function readSort(value: string | null): ProductSort {
  * results are shareable/bookmarkable. The search text box is the one
  * exception: it's debounced locally before being written to the URL, so
  * typing doesn't thrash history/fetches on every keystroke.
+ *
+ * `categories`/`subcategories` are fetched server-side by `app/(site)/
+ * products/page.tsx` (real Prisma queries, Phase 12b) and passed down —
+ * this component can't call Prisma itself (Client Component).
  */
-export function ProductsExplorer() {
+export function ProductsExplorer({
+  categories,
+  subcategories,
+}: {
+  categories: Category[];
+  subcategories: Subcategory[];
+}) {
   const { t, lang } = useLanguage();
   const router = useRouter();
   const pathname = usePathname();
@@ -40,7 +51,7 @@ export function ProductsExplorer() {
   const categorySlug = searchParams.get("category") ?? "";
   const subcategorySlug = searchParams.get("subcategory") ?? "";
   const sort = readSort(searchParams.get("sort"));
-  const page = Math.max(1, Number(searchParams.get("page")) || 1);
+  const page = parsePageParam(searchParams.get("page"));
   const committedSearch = searchParams.get("q") ?? "";
 
   const [searchInput, setSearchInput] = React.useState(committedSearch);
@@ -121,9 +132,9 @@ export function ProductsExplorer() {
     };
   }, [committedSearch, categorySlug, subcategorySlug, sort, page, lang, retryToken]);
 
-  const activeCategory = mockCategories.find((category) => category.slug === categorySlug);
+  const activeCategory = categories.find((category) => category.slug === categorySlug);
   const availableSubcategories = activeCategory
-    ? mockSubcategories.filter((subcategory) => subcategory.categoryId === activeCategory.id)
+    ? subcategories.filter((subcategory) => subcategory.categoryId === activeCategory.id)
     : [];
   const hasActiveFilters = Boolean(searchInput || categorySlug || subcategorySlug || sort !== "featured");
 
@@ -147,7 +158,7 @@ export function ProductsExplorer() {
       <ProductsToolbar
         t={t}
         lang={lang}
-        categories={mockCategories}
+        categories={categories}
         subcategories={availableSubcategories}
         searchValue={searchInput}
         onSearchChange={setSearchInput}
@@ -190,7 +201,7 @@ export function ProductsExplorer() {
 
       {status === "success" && result && result.items.length > 0 ? (
         <>
-          <ProductsGrid products={result.items} lang={lang} t={t} />
+          <ProductsGrid products={result.items} lang={lang} t={t} priorityFirst />
           <Pagination
             page={result.page}
             totalPages={result.totalPages}

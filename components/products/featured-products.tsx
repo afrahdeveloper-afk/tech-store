@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
-import { mockProducts } from "@/lib/mock/products";
+import type { Product } from "@/types";
 import { useLanguage } from "@/components/providers/language-provider";
 import { Container } from "@/components/ui/container";
 import { SectionHeading } from "@/components/shared/section-heading";
 import { Reveal } from "@/components/shared/reveal";
 import { ProductCard } from "./product-card";
 
-export function FeaturedProducts() {
+/** `products` is fetched server-side (real Prisma query, Phase 12b) by `app/(site)/page.tsx` and passed down — this is a Client Component (translated copy via `useLanguage()`). */
+export function FeaturedProducts({ products }: { products: Product[] }) {
   const { t, lang } = useLanguage();
 
   return (
@@ -32,7 +33,7 @@ export function FeaturedProducts() {
         </div>
 
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {mockProducts.map((product, index) => (
+          {products.map((product, index) => (
             <Reveal key={product.id} delayMs={index * 60}>
               <ProductCard product={product} lang={lang} t={t} />
             </Reveal>

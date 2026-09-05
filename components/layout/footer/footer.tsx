@@ -3,17 +3,28 @@
 import Link from "next/link";
 import { Clock, Gauge, Mail, MapPin, Phone } from "lucide-react";
 
+import type { StoreSettingsData } from "@/lib/settings-data";
 import { useLanguage } from "@/components/providers/language-provider";
 import { Container } from "@/components/ui/container";
 import { Small } from "@/components/ui/typography";
 
 /**
  * Global footer (Phase 2). Client Component for the same reason as the
- * navbar — translated copy needs `useLanguage()`. Contact details are mock
- * placeholder content (see "Mock Data" in CLAUDE.md), not a real address.
+ * navbar — translated copy needs `useLanguage()`.
+ *
+ * Contact details and the copyright line's store name are read from the
+ * real `StoreSettings` singleton row (Admin Settings), passed down from
+ * `app/(site)/layout.tsx` — not hardcoded anymore. `StoreSettings`'s schema
+ * defaults exactly match what used to be hardcoded here, so a never-touched
+ * settings row renders byte-identical content to before. The wordmark/logo
+ * lockup below stays a fixed "Speed Core" — that's brand identity, not
+ * contact information (see CLAUDE.md's Design System Reference "Logo"
+ * note), so it's deliberately not wired to `settings.storeName`.
  */
-export function Footer() {
+export function Footer({ settings }: { settings: StoreSettingsData }) {
   const { t, lang } = useLanguage();
+  const storeName = lang === "ar" ? settings.storeNameAr ?? settings.storeName : settings.storeName;
+  const contactAddress = lang === "ar" ? settings.contactAddressAr ?? settings.contactAddress : settings.contactAddress;
 
   const shopLinks = [
     { href: "/products", label: t.nav.products },
@@ -58,21 +69,23 @@ export function Footer() {
             <li className="flex items-start gap-2 text-muted-foreground">
               <Phone className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
               <Small as="span" dir="ltr" className="text-start text-muted-foreground">
-                +966 11 234 5678
+                {settings.contactPhone}
               </Small>
             </li>
             <li className="flex items-start gap-2 text-muted-foreground">
               <Mail className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
               <Small as="span" dir="ltr" className="text-start text-muted-foreground">
-                support@speedcore.example
+                {settings.contactEmail}
               </Small>
             </li>
-            <li className="flex items-start gap-2 text-muted-foreground">
-              <MapPin className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-              <Small as="span" className="text-muted-foreground">
-                {lang === "ar" ? "الحي التقني، الرياض" : "Tech District, Riyadh"}
-              </Small>
-            </li>
+            {contactAddress ? (
+              <li className="flex items-start gap-2 text-muted-foreground">
+                <MapPin className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                <Small as="span" className="text-muted-foreground">
+                  {contactAddress}
+                </Small>
+              </li>
+            ) : null}
             <li className="flex items-start gap-2 text-muted-foreground">
               <Clock className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
               <Small as="span" className="text-muted-foreground">
@@ -87,7 +100,7 @@ export function Footer() {
 
       <Container className="flex flex-col items-center justify-between gap-2 py-5 sm:flex-row">
         <Small className="text-muted-foreground">
-          &copy; {new Date().getFullYear()} Speed Core. {t.footer.rights}
+          &copy; {new Date().getFullYear()} {storeName}. {t.footer.rights}
         </Small>
       </Container>
     </footer>

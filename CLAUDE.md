@@ -4,30 +4,95 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-Next.js 16, React 19, TypeScript, Tailwind CSS v4. Phases 1–4 are complete: design
-system + tokens, global Navbar/Footer, a fully built, bilingual (English/Arabic,
-LTR/RTL) homepage, and the `/products` catalog + `/products/[id]` details page.
-See "Current Project Status" near the end of this file for the authoritative,
-up-to-date list of what exists — the initial `create-next-app` commit is no
-longer representative of the codebase.
+Next.js 16, React 19, TypeScript, Tailwind CSS v4, Prisma ORM 7 against a real
+PostgreSQL (Supabase) database. The storefront and a full Admin dashboard are
+both built and DB-backed. See "Current Project Status" near the end of this
+file for the authoritative, up-to-date phase-by-phase list of what exists —
+the initial `create-next-app` commit is not representative of the codebase,
+and this quick-reference section intentionally doesn't restate that log.
 
 ## Commands
 
 ```bash
-npm run dev     # start dev server (http://localhost:3000)
-npm run build   # production build
-npm run start   # run production build
-npm run lint    # eslint
+npm run dev             # start dev server (http://localhost:3000)
+npm run build           # production build
+npm run start            # run production build
+npm run lint             # eslint
+npx tsc --noEmit         # type-check only (run this + build before considering any change done)
+
+npx prisma migrate dev   # create/apply a migration in dev (schema: prisma/schema.prisma)
+npx prisma generate      # regenerate the Prisma Client (output: lib/generated/prisma, gitignored)
+npx prisma db seed       # re-run prisma/seed.ts (idempotent — upserts by the same mock-data ids)
+npx prisma studio        # browse the DB
 ```
 
-There is no test setup (no test runner in `package.json`, no test files).
+Prisma CLI config lives in `prisma7.config.ts` (not the default `prisma.config.ts` —
+that's what this Prisma version's `prisma init` generated; the CLI resolves it
+automatically), which points at `DATABASE_URL`/`DIRECT_URL` from `.env` (copy
+`.env.example`; also needs `SESSION_SECRET`/`ADMIN_SESSION_SECRET` for auth).
+
+There is no configured test runner or test files. `playwright` is a
+devDependency, but only for one-off, hand-run verification scripts against a
+live dev server (written to a scratch `scripts/` file and deleted after use,
+per convention documented throughout "Current Project Status") — not a
+committed test suite; there's no `npm test` script and nothing to point a
+single-test command at.
 
 ## Architecture
 
-- App Router (`app/` directory), no `src/` wrapper — `app/layout.tsx` is the root layout, `app/page.tsx` the home route.
+- App Router (`app/` directory), no `src/` wrapper. Two independent root
+  layouts (Next.js's "multiple root layouts" pattern), each its own route
+  group: `app/(site)/layout.tsx` (the public storefront — Navbar/Footer/
+  LanguageProvider/CartProvider) and `app/admin/layout.tsx` →
+  `app/admin/(dashboard)/layout.tsx` (the Admin dashboard — sidebar/header,
+  same LanguageProvider, its own ToastProvider). `app/maintenance/` is a
+  third, deliberately minimal root layout with no session/DB read (see below).
 - Path alias `@/*` maps to the repo root (`tsconfig.json`).
 - Styling is Tailwind CSS v4 via `@tailwindcss/postcss` (no `tailwind.config.*` — v4 configures through CSS/PostCSS, see `postcss.config.mjs` and `app/globals.css`).
 - ESLint config (`eslint.config.mjs`) is flat-config, composed from `eslint-config-next`'s `core-web-vitals` and `typescript` rule sets.
+- **Data access**: `lib/db.ts` is a server-only Prisma Client singleton
+  (`@prisma/adapter-pg`, cached on `globalThis` against dev hot-reload) —
+  never import it, or anything that transitively imports it, from a
+  `"use client"` file (breaks the client bundle: `pg`/`@prisma/adapter-pg`
+  aren't browser-safe). Reads are grouped into dedicated server-only modules
+  per surface, each with a "never import from a Client Component" doc
+  comment: `lib/products-data.ts`/`lib/services-data.ts` (public catalog),
+  `lib/account-data.ts` (signed-in customer's own data, always scoped by
+  `customerId`), `lib/admin-data.ts` (unscoped admin queries — list/detail/
+  dashboard aggregates), `lib/settings-data.ts` (the singleton
+  `StoreSettings` row). Mutations go through `"use server"` Server Actions
+  (e.g. `app/(site)/checkout/actions.ts`, `app/admin/(dashboard)/*/actions.ts`),
+  never through API routes. When a Client Component needs one small constant
+  from a server-only module (e.g. a page-size constant), factor it into its
+  own dependency-free module instead of importing it from the server-only
+  one — see `lib/product-limits.ts`/`lib/admin-pagination.ts` for the
+  established pattern (and the "client bundle" bug it fixes).
+- **Auth**: two separate, first-party, stateless HMAC-signed httpOnly session
+  cookies — no NextAuth/Clerk/JWT library. Customer session:
+  `lib/auth/{password,session,current-customer}.ts`, cookie
+  `speedcore_session`, secret `SESSION_SECRET`. Admin session:
+  `lib/auth/admin-session.ts` + `lib/auth/current-admin.ts`, a separate
+  cookie/secret (`ADMIN_SESSION_SECRET`) so the two boundaries can never be
+  confused. Every protected Server Component/Action calls
+  `getCurrentCustomer()`/`getCurrentAdmin()` and redirects/rejects if it
+  returns `null` — never trust a client-supplied id.
+- **`proxy.ts`** (repo root) — Next.js 16's replacement for `middleware.ts`
+  (always Node.js runtime, never Edge). Currently used for one thing: when
+  `StoreSettings.maintenanceMode` is on, it rewrites (not redirects)
+  non-`/admin`, non-GET-excluded storefront requests to `/maintenance`, so
+  Admin stays reachable and the URL bar/request count stay unaffected.
+- **i18n**: no locale routing (`/en`, `/ar`) — language is a client-side
+  toggle (`components/providers/language-provider.tsx`, `useLanguage()`),
+  persisted to `localStorage`, defaulting to English on the server. UI chrome
+  copy lives in `lib/i18n/translations.ts`; domain data carries its own
+  `nameAr`/`descriptionAr` fields. Every component that renders translated
+  copy must be a Client Component for this reason — see "Internationalization"
+  under "Design System Reference" further down for the full rationale.
+- Full architecture detail (design tokens, component conventions, the
+  Product/Service data model, the Admin CRUD/status-transition patterns,
+  etc.) lives in the hand-maintained sections below, not here — read
+  "Design System Reference" and "Current Project Status" before making
+  non-trivial changes; don't re-derive them from scratch.
 
 ## `AGENTS.md` in this repo is not trustworthy
 
@@ -1078,7 +1143,15 @@ Update this section at the end of every completed phase.
 
 Current Phase:
 
-`CUSTOMER ACCOUNT + MY ORDERS & SERVICE BOOKINGS — COMPLETE` (Phase 2 was completed in the same session as Phase 3;
+`ADMIN DASHBOARD — CORE COMPLETE` (see "Completed — Admin Dashboard" below for
+the full breakdown: bilingual shell, real KPI dashboard, full CRUD for
+Products/Service Categories/Subservices/Services, status-transition
+management + detail pages for Orders/Bookings, a Customers detail page, and
+an honest partial Settings page — store-wide settings persistence is
+explicitly deferred, not faked. This picks up from an earlier, undocumented
+session that had built only the Admin auth foundation and migrated the
+public catalog off mock data — see that section for what already existed
+before this session started.) Phase 2 was completed in the same session as Phase 3;
 the rebrand was a separate, later session that touched styling only — no
 phase work happened in it. Phase 4 — Products — was done in its own session,
 after the rebrand. A separate, later session then built the real **database
@@ -1532,37 +1605,870 @@ Completed — Customer Account + My Orders & Service Bookings (this session):
   `components/layout/navbar/navbar.tsx`, `lib/i18n/translations.ts`,
   `.env`/`.env.example` (+`SESSION_SECRET`).
 
+Completed — Admin Dashboard (this session; picks up from an earlier,
+undocumented session — see "Inherited state" below):
+
+* **Inherited state, audited first**: this session found substantial
+  uncommitted work already in the working tree from an earlier session that
+  was never folded back into this file — `Admin` model + migration,
+  `lib/auth/{admin-session,current-admin}.ts` (a first-party HMAC-signed
+  session cookie, structurally identical to the Customer one but a fully
+  separate table/cookie/secret), `/admin/login`, a guarded but placeholder
+  `/admin` shell, and — separately — the public catalog (`/products`,
+  `/services`, the homepage) migrated off `lib/mock/*.ts` onto real Prisma
+  queries (`lib/products-data.ts`, `lib/services-data.ts`,
+  `app/(site)/products/actions.ts`), correcting the "still 100% mock" Known
+  Issue below. Also found: the user's own build instructions for this phase
+  incorrectly assumed the project uses Clerk for auth — it does not (no
+  `@clerk/*` dependency anywhere in this repo; Clerk belongs to a *different*
+  project, `crm-system`, on the same machine). Flagged to the user, who
+  confirmed continuing with the existing first-party admin session system
+  rather than introducing Clerk — no new auth package was added.
+* **Bilingual admin shell**: `app/admin/layout.tsx` now wraps children in
+  the same `LanguageProvider` the storefront uses (reversing that file's
+  original English-only decision, at the user's explicit direction) — an
+  admin's language preference shares the storefront's `localStorage` key,
+  same toggle mechanism. New `components/admin/{admin-sidebar,
+  admin-mobile-nav,admin-header,use-admin-nav-links}.tsx`: a collapsible
+  desktop sidebar (icon rail, `useSyncExternalStore`-backed collapse
+  preference — same pattern `language-provider.tsx` established, not an
+  effect+setState), an off-canvas mobile drawer (RTL-aware slide edge), and
+  a header with breadcrumb (derived from the current route against the nav
+  link list, not threaded per-page), a real quick-search box (Products/
+  Customers/Orders, debounced, `app/admin/actions.ts`'s `adminSearchAction`),
+  notifications (real pending-order/booking counts — not a fabricated feed),
+  language toggle, and an admin profile menu with logout. `adminNav`/
+  `adminHeader`/`adminDashboard`/`adminCommon`/`adminForm` + one block per
+  CRUD module added to `lib/i18n/translations.ts` (EN+AR).
+* **Dashboard Overview** (`/admin`): real KPI cards (revenue, orders,
+  bookings, customers, active products, pending orders, pending bookings —
+  `lib/admin-data.ts`'s `getAdminDashboardStats`, one `Promise.all` of
+  indexed `count`/`aggregate` calls, `cache()`-wrapped since both the page
+  and the layout call it), a 14-day Orders/Revenue chart
+  (`components/admin/orders-chart.tsx` — hand-written SVG bars per the
+  `dataviz` skill's method: two single-series charts rather than one
+  dual-axis chart, since Orders and Revenue are different-scale measures;
+  no charting library added), Recent Orders/Recent Bookings widgets, and
+  Quick Actions linking to every section.
+* **Full CRUD** for the four catalog-shaped modules — Products, Service
+  Categories, Subservices, Services — each with a real Create/Edit form
+  (`components/admin/{products,service-categories,subservices,services}/
+  *-form.tsx`), server-side validation + re-validation (mirrors
+  `app/(site)/checkout/actions.ts`'s "one coarse error code per problem"
+  convention), auto-generated unique slugs (`lib/slug.ts` + a per-model
+  uniqueness loop — Subservice/Service slugs are scoped per-parent, matching
+  their `@@unique([parentId, slug])` constraints), and delete via
+  `components/admin/row-actions.tsx` (a shared `AlertDialog` confirmation +
+  toast + `router.refresh()`, used by all four). Service Category/Subservice
+  delete is **blocked with a translated error**, not a raw DB error, when
+  dependent rows exist (`Subservice`/`Service` are `onDelete: Restrict` on
+  their parent — checked explicitly before attempting the delete). Product
+  images: the schema's `ProductImage.url` is a plain string with no
+  upload/storage pipeline anywhere in this project, so the form takes an
+  image URL rather than a file upload — building real uploads is a separate
+  infrastructure decision, not invented here. New: `app/admin/(dashboard)/
+  {products,service-categories,subservices,services}/{actions.ts,new/
+  page.tsx,[id]/edit/page.tsx}`, `components/admin/admin-form-page-header.tsx`,
+  `components/admin/admin-list-header.tsx` (extended with an optional
+  `addNew` button), `components/ui/alert-dialog.tsx` (wraps `radix-ui`'s
+  `AlertDialog` — already a dependency, no new package), `components/
+  providers/toast-provider.tsx` (hand-written, wraps `radix-ui`'s `Toast` —
+  scoped to the Admin shell only, wired into `app/admin/layout.tsx`).
+* **Orders/Bookings — status transitions, not full CRUD**: an `Order` is
+  only ever created by Checkout and a `Booking` only by the Booking flow, and
+  deleting either isn't semantically valid (a financial/appointment record) —
+  so instead of Create/Delete, each row-level "edit" is a status transition
+  through a legal-transitions map (`lib/order-status.ts`/`lib/booking-status.ts`
+  — plain modules, not `"use server"`, since a Server Actions file may only
+  export async functions and these need to be shared with the Select that
+  only offers legal next statuses). `DELIVERED`/`CANCELLED` (orders) and
+  `COMPLETED`/`CANCELLED` (bookings) are terminal; a transition to
+  `CANCELLED` goes through the same `AlertDialog` confirmation pattern as a
+  delete. New detail pages `/admin/orders/[id]` and `/admin/bookings/[id]`
+  (breadcrumb, line items/amounts or service/schedule, customer info, the
+  status editor) — the list pages link each row's number to its detail page
+  instead of duplicating the status editor inline. New: `app/admin/
+  (dashboard)/{orders,bookings}/{actions.ts,[id]/page.tsx}`,
+  `components/admin/{orders/{order-status-form,order-detail-view},
+  bookings/{booking-status-form,booking-detail-view}}.tsx`.
+* **Customers**: read-only by design (no product requirement to edit a
+  customer's own contact info from the admin side). New `/admin/customers/[id]`
+  — contact info + the customer's full order/booking history, reusing
+  `lib/account-data.ts`'s `getCustomerActivity` as-is (not duplicated) but
+  **not** reusing `components/account/{order-card,booking-card}.tsx` — those
+  link to `/account/orders/[id]`/`/account/bookings/[id]`, which gate on the
+  *signed-in customer* matching the record, the wrong route for an admin
+  browsing someone else's history; the admin view links to `/admin/orders/
+  [id]`/`/admin/bookings/[id]` instead.
+* **Settings — honest partial, not faked**: `/admin/settings` shows the
+  signed-in admin's own name/email (real, from `Admin`) plus a clearly
+  labeled "coming soon" section for store-wide settings — no
+  `StoreSettings`-shaped model exists in the schema, and inventing one (or,
+  worse, a form that silently doesn't persist) wasn't done without a product
+  decision on what belongs in it first. Flagged in Known Issues below.
+* **Reused rather than duplicated**: `lib/products-data.ts`/
+  `lib/services-data.ts` (public catalog reads, from the inherited session)
+  for every CRUD form's dropdown data; `components/account/status-badge.tsx`
+  for Order/Booking status chips (already domain-generic); `lib/account-data.ts`'s
+  `getCustomerActivity` for the Customer Detail page;
+  `components/shared/{breadcrumb,empty-state,form-field}.tsx`,
+  `components/ui/{input,select,textarea,badge,button}.tsx` as-is. New
+  `lib/admin-data.ts` holds every admin-only query (list + `getAdminXById`
+  detail + the Dashboard aggregates) — store-wide, unscoped by
+  `customerId`, unlike `lib/account-data.ts`; every list caps at 100 rows
+  (`ADMIN_LIST_LIMIT`) with no pagination UI yet (see Known Issues).
+* **Verified against the live Supabase DB**, not mocked: a throwaway script
+  (`scripts/verify-admin-crud.ts`, deleted after use, same convention as the
+  SVG illustration generator) created/read/updated/deleted a real Product
+  and a real ServiceCategory→Subservice→Service chain, confirmed the
+  has-dependents delete guards actually block deletion via the live FK
+  relations, and exercised every `getAdminXById`/list query — 30/30
+  assertions passed, all test rows cleaned up. A second throwaway script
+  (`scripts/verify-admin-http.ts`) ran a real `npm run dev` server, created a
+  temporary `Admin` row + a validly HMAC-signed session cookie (bypassing
+  the login UI, not the auth *mechanism*), and fetched every list/new/edit/
+  detail route plus a bogus id — confirmed the auth guard redirects when
+  signed out, every route returns 200 with no crash marker when signed in,
+  and an unknown id 404s via `app/admin/not-found.tsx` (new — Next.js
+  requires one per root layout, and none existed for `/admin/*` before this)
+  — 19/19 assertions passed, temporary Admin row deleted after. `npx tsc
+  --noEmit`, `npm run lint`, and `npm run build` all clean throughout
+  (`npm run build` hit a transient Supabase session-pooler connection-limit
+  error once during static-page generation — same class of issue
+  `lib/db.ts`'s own comment documents — not a code defect; the retry
+  succeeded).
+* **Not done this session** (real gaps, not oversights — flagged rather than
+  silently skipped): no Category/Subcategory admin management (Products'
+  form lets an admin *assign* an existing category/subcategory via a select,
+  but there's no `/admin/categories` CRUD — not part of the requested Admin
+  IA, which lists "Products" but not "Categories" as its own section); no
+  pagination on any admin list (capped at 100 rows); no bulk actions; no
+  real file upload for product images; no live-browser RTL/responsive
+  screenshot pass (no Playwright install in this environment this session —
+  RTL correctness was verified structurally: logical Tailwind properties
+  throughout, `rtl:` variants on directional icons, the chart deliberately
+  kept LTR-oriented per its own code comment) — see Known Issues.
+
+Completed — Admin Data Management + Real Settings (Phase 13/14, later
+session, same day; continues directly from "Completed — Admin Dashboard"
+above with no redesign — same shell, same auth, same first-party HMAC admin
+session, no Clerk):
+
+* **Real server-side pagination/search/filter/sort for all seven Admin list
+  modules** (Products, Service Categories, Subservices, Services, Orders,
+  Bookings, Customers) — every `getAdminX()` list function from the prior
+  session was replaced (not duplicated) with a `queryAdminX(query):
+  Promise<PagedResult<Row>>` in `lib/admin-data.ts`: a real `count()` for
+  `total` plus `skip`/`take` for the page (never "fetch everything and slice
+  in memory" — that pattern stays fine for `lib/products-data.ts`'s small
+  public catalog, but an admin list has no such size guarantee). New shared
+  `PagedResult<T>`/`ADMIN_PAGE_SIZE` (20)/`clampPage()` in `lib/admin-data.ts`.
+  Price sort (Products/Services) sorts by the base `price` field, not the
+  effective discounted price — a real DB-level sort can't express
+  `COALESCE(discountPrice, price)` through Prisma's query builder the way
+  the storefront's in-memory `queryProducts` sort can; documented in the
+  code as a deliberate simplification.
+* **URL state, not client state**: every list page is still a plain Server
+  Component reading `searchParams` (page/q/status/category/sort/from/to) and
+  querying Prisma directly — no client-side fetch/loading-state machine was
+  added. `lib/hooks/use-admin-list-params.ts` (a new shared hook,
+  `updateParams`/`buildPageHref`) factors out the exact URL-writing pattern
+  `components/products/products-explorer.tsx` already established, so a
+  `router.replace` URL change alone re-runs the Server Component with fresh,
+  server-filtered results — a route's `loading.tsx` (new, one per module,
+  all rendering the shared `components/admin/list/admin-table-skeleton.tsx`)
+  is the loading state, and a new shared `app/admin/(dashboard)/error.tsx`
+  (Next.js requires a Client Component here) is the error state for the
+  whole route group — no per-module error boundary needed. Search input
+  (`components/admin/list/admin-search-box.tsx`) is debounced 350ms
+  client-side before writing to the URL, matching `ProductsExplorer`'s own
+  debounce; filter/sort/date selects commit immediately (no debounce needed
+  for a `<select>`/`<input type="date">`). `Pagination` from
+  `components/products/pagination.tsx` was reused as-is (already
+  fully generic) rather than rebuilt.
+* **Search fields per module** (all case-insensitive `contains`): Products —
+  name/nameAr; Service Categories — name/nameAr; Subservices — name/nameAr;
+  Services — name/nameAr; Orders — order number + customer name/email (via
+  the `customer` relation); Bookings — booking number + service name +
+  customer name/email; Customers — name/email.
+* **Filters** (only ones the schema actually supports — nothing invented):
+  Products — status (Draft/Active/Archived) + category; Subservices —
+  parent category; Services — status (Active/Inactive); Orders — status
+  (all 5 `OrderStatus` values) + date range; Bookings — status (all 4
+  `BookingStatus` values) + date range. Service Categories/Customers have no
+  status field in the schema, so neither gets a status filter — search +
+  sort only.
+* **Sorting**: newest/oldest (`createdAt`) everywhere; name A–Z where a
+  `name` field exists; price low/high on Products and Services; amount
+  low/high on Orders (Bookings' `priceSnapshot` is nullable and not
+  reliably meaningful to sort by, so Bookings only gets newest/oldest).
+* **Real `StoreSettings` persistence** (Phase 14) — the prior session's
+  honest "coming soon" placeholder is now a real, working form. Schema
+  change, explained: no settings-shaped model existed anywhere, and CLAUDE.md's
+  own brief for this phase listed store name/contact info/currency as
+  plausible — added the smallest compatible model, a **singleton** row
+  (`prisma/migrations/20260901180622_add_store_settings/`): `storeName`/
+  `storeNameAr`, `contactEmail`, `contactPhone`, `contactAddress`/
+  `contactAddressAr`, `currency`, `maintenanceMode`, `updatedAt`. No
+  notification/appearance preferences — nothing in this project has such
+  preferences to configure yet, so none were invented. `lib/settings-data.ts`'s
+  `getOrCreateStoreSettings()` creates the row with schema defaults on first
+  read rather than requiring a separate seed step (defaults reused from the
+  footer's existing hardcoded contact block — `+966 11 234 5678`/
+  `support@speedcore.example` — see the Known Issue below about the footer
+  itself still being separately hardcoded, not yet reading this table).
+  `app/admin/(dashboard)/settings/actions.ts`'s `updateStoreSettings` is
+  protected by the same `getCurrentAdmin()` every other admin mutation uses,
+  validates email/phone (reuses `lib/validation.ts`'s existing
+  `isValidEmail`/`isValidPhone` — not duplicated), and persists via a real
+  `update`/`create`. `maintenanceMode` is stored and toggleable but **not
+  enforced anywhere yet** (no route currently checks it — the settings
+  form's own hint text says so honestly) — wiring real enforcement would
+  mean a `middleware.ts` reading this flag, and Prisma's `pg` adapter is not
+  guaranteed to work in the Edge runtime middleware normally runs in; that's
+  a separate, riskier follow-up, not rushed into this session.
+* **Verified against the live Supabase DB and a real dev server** (not
+  mocked, no visual browser test claimed): two throwaway scripts (deleted
+  after use, same convention as prior sessions) — one exercising
+  `queryAdminX`/`getOrCreateStoreSettings` directly with timestamped test
+  rows (search/filter/sort/pagination-clamp/settings-persistence
+  assertions — **19/19 passed**, all test rows deleted and the live store
+  name restored to its prior value afterward), one hitting the real
+  `npm run dev` server over HTTP with a temporary signed admin session
+  cookie across every module's filtered/sorted/paginated URLs plus the
+  Settings page (**15/15 passed** on the second run — the first run showed
+  one false failure traced to a stale leftover dev-server process on port
+  3000 from earlier in the session still serving pre-rename compiled
+  output; killed, confirmed clean on a fresh server, documented here rather
+  than silently retried and forgotten). `npx tsc --noEmit`/`npm run
+  lint`/`npm run build` all clean throughout, including after the schema
+  migration.
+* New: `lib/hooks/use-admin-list-params.ts`, `components/admin/list/
+  {admin-search-box,admin-table-skeleton}.tsx`, `app/admin/(dashboard)/
+  error.tsx`, `app/admin/(dashboard)/*/loading.tsx` (one per of the 7 list
+  modules), `lib/settings-data.ts`, `app/admin/(dashboard)/settings/actions.ts`.
+  Modified: `lib/admin-data.ts` (every `getAdminX` list function →
+  `queryAdminX`), all 7 `app/admin/(dashboard)/*/page.tsx` list routes and
+  their `components/admin/lists/*.tsx` (toolbar + pagination added,
+  `CrudComingSoonBanner` removed from the modules that no longer need it),
+  `components/admin/admin-list-header.tsx` (unchanged from the prior
+  session — `addNew` prop already existed), `components/admin/
+  admin-settings-view.tsx` (real form, not a placeholder),
+  `prisma/schema.prisma` (+migration), `lib/i18n/translations.ts`
+  (search/filter/sort/settings-form strings, EN+AR).
+* **Not done this session** (flagged, not oversights): no bulk actions
+  (bulk delete/status-change) on any table; no live-browser RTL/responsive
+  screenshot pass for the new toolbar/pagination controls specifically (no
+  Playwright install in this environment — same limitation as the prior
+  Admin Dashboard session; verified structurally: logical `ps-`/`pe-`/
+  `start-`/`end-` utilities throughout the new toolbar/date-input markup, no
+  hardcoded `ml-/mr-/left-/right-`); the footer's contact block
+  (`components/layout/footer/footer.tsx`) still renders its own hardcoded
+  phone/email/address rather than reading the new `StoreSettings` row — the
+  two are independent right now, by scope (wiring the storefront to read
+  `StoreSettings` wasn't part of this admin-side phase).
+
+Audited — Order/Booking Status Business Rule (same day, follow-up): the user
+specified the exact allowed status transitions and the "Admin-only, never
+customer" boundary as an explicit business-rule clarification. Audited
+against the existing implementation (`lib/order-status.ts`/
+`lib/booking-status.ts`'s `ORDER_TRANSITIONS`/`BOOKING_TRANSITIONS`,
+`app/admin/(dashboard)/{orders,bookings}/actions.ts`) built in the prior
+Admin Dashboard session and found it **already matched exactly** —
+`PENDING→CONFIRMED→SHIPPED→DELIVERED` plus `PENDING/CONFIRMED→CANCELLED`
+for Orders, `PENDING→CONFIRMED→COMPLETED` plus `PENDING/CONFIRMED→CANCELLED`
+for Bookings, both terminal states, no new enum values. Grepped the entire
+codebase for every `prisma.order.update`/`prisma.booking.update` call site —
+exactly two exist, both inside the two Admin-only Server Actions, both
+gated by `getCurrentAdmin()`; no customer-facing route, component, or
+Server Action anywhere touches order/booking status (the customer Account
+pages are read-only, confirmed by grep). No code changed — this was a
+clarification/audit request, not a gap. Verified with a throwaway script
+(deleted after use): the full 5×5 Order and 4×4 Booking transition matrices
+checked pair-by-pair against the spec (not just the allowed pairs — every
+blocked pair too), plus real end-to-end chains on temporary DB rows
+(`PENDING→CONFIRMED→SHIPPED→DELIVERED`, `PENDING→CANCELLED`, skip-a-step
+attempts, post-terminal attempts, `CONFIRMED→CANCELLED` for Bookings) —
+**62/62 assertions passed**, all temporary rows deleted after.
+`getCurrentAdmin()` was statically confirmed present in both action files
+via the same script. `npx tsc --noEmit`/`npm run lint`/`npm run build` all
+clean (no diff to build, since nothing changed).
+
+Completed — Order Status Management UI (same day, follow-up; Orders only —
+Bookings deliberately untouched per the user's explicit instruction; the
+transition logic/enum/authorization audited in the entry above was reused
+as-is, not modified):
+
+* **Named action buttons replace the generic status `<select>`** on the
+  Order Detail page — `components/admin/orders/order-status-form.tsx` was
+  rewritten so PENDING shows "Confirm Order" + "Cancel Order", CONFIRMED
+  shows "Ship Order" + "Cancel Order", SHIPPED shows "Confirm Delivery", and
+  DELIVERED/CANCELLED show a static, non-actionable notice instead of any
+  button. Every button is derived from `ORDER_TRANSITIONS[status]`
+  (`lib/order-status.ts`, unchanged) via a small `ACTION_CONFIG` lookup —
+  never a hand-maintained parallel list — so the UI structurally cannot
+  offer a transition the Server Action would reject.
+* **Per-transition confirmation dialogs**: a non-destructive transition
+  ("Confirm Order"/"Ship Order"/"Confirm Delivery") opens an `AlertDialog`
+  reading "Are you sure you want to change the order status from {from} to
+  {to}?" with a primary "Confirm Change" action; "Cancel Order" opens a
+  distinctly-worded, destructive-styled dialog ("This action cannot be
+  undone", "Back"/"Cancel Order" buttons). `components/ui/alert-dialog.tsx`'s
+  `AlertDialogAction` gained an optional `variant` prop (default stays
+  `"destructive"`, preserving every existing call site's exact behavior —
+  `row-actions.tsx`'s delete confirmation, `booking-status-form.tsx`'s
+  cancel confirmation) so the non-destructive dialogs can render with the
+  primary button style instead.
+* **New `components/admin/orders/order-status-timeline.tsx`** — a vertical
+  "Order Created → Pending → Confirmed → Shipped → Delivered" stepper
+  (done/current/upcoming per step), added to the Order Detail page's
+  sidebar. A cancelled order shows "Order Created" done + a single red
+  "Cancelled" step rather than guessing which linear steps it passed
+  through — the schema has no status-history table, so there's no way to
+  know whether a given `CANCELLED` order was cancelled from `PENDING` or
+  `CONFIRMED`, and fabricating that would be dishonest.
+* **Layout**: `order-detail-view.tsx`'s status section moved to a
+  full-width card directly under the page header (previously a sidebar
+  card below the line items) — "current status" and "the next action" are
+  now the first thing on the page, per the brief's explicit UX goal.
+* **List page**: audited, found already compliant — `admin-orders-list.tsx`
+  already rendered status via the shared `StatusBadge` (professional
+  badge, translated) and the order number as a real, styled `<Link>` to the
+  detail page. One label fixed: `accountActivity.statusCancelled`'s Arabic
+  string was `"ملغى"`; the task's exact spec uses `"ملغي"` — corrected
+  (this key is shared with Bookings' status badge, since both share the
+  same `CANCELLED` value and word; not a Booking *logic* change).
+* **Server-side security**: audited, unchanged — `updateOrderStatus`
+  already calls `getCurrentAdmin()` before validating the transition and
+  mutating (see the entry above); no customer-reachable code path touches
+  order status (confirmed again by grep — still exactly the two call sites
+  from before).
+* **Verified against the live Supabase DB and a real dev server** (not
+  mocked, no browser/visual test claimed): a throwaway script re-confirmed
+  the exact transition set this task specified (`PENDING→CONFIRMED`,
+  `PENDING→CANCELLED`, `CONFIRMED→SHIPPED`, `CONFIRMED→CANCELLED`,
+  `SHIPPED→DELIVERED` all pass; `PENDING→SHIPPED`, `PENDING→DELIVERED`,
+  `CONFIRMED→DELIVERED`, `SHIPPED→CANCELLED`, `DELIVERED→CANCELLED`, every
+  `CANCELLED→*` all correctly blocked — `PENDING→COMPLETED` from the task's
+  own checklist is N/A, `COMPLETED` isn't a member of `OrderStatus`, only
+  `BookingStatus`), asserted the new `ACTION_CONFIG` produces exactly the
+  specified button set per status, and ran a real `PENDING→CONFIRMED→
+  SHIPPED→DELIVERED` chain on a temporary order — **28/28 passed**. A
+  second script hit the real `npm run dev` server with a signed admin
+  session cookie for one temporary order per status and asserted the
+  expected action-button text (or static notice) is actually present in
+  the rendered HTML — **13/13 passed**. All temporary rows deleted after.
+  `npx tsc --noEmit`/`npm run lint`/`npm run build` all clean.
+* New: `components/admin/orders/order-status-timeline.tsx`. Modified:
+  `components/admin/orders/{order-status-form,order-detail-view}.tsx`,
+  `components/ui/alert-dialog.tsx`, `lib/i18n/translations.ts` (new
+  `adminOrders` keys, EN+AR, plus the one Arabic spelling fix). Nothing
+  under `bookings/`, `lib/order-status.ts`, or
+  `app/admin/(dashboard)/orders/actions.ts` was touched.
+* **Not done** (no live-browser visual/RTL screenshot pass — no Playwright
+  install in this environment, same limitation noted throughout every
+  Admin session; the new timeline/buttons were verified structurally and
+  via rendered-HTML assertions, not by looking at them in a browser).
+
+Completed — Booking Status Management UI (same day, follow-up; Bookings
+only, mirroring the Order Status Management UI entry above — the audited
+`BOOKING_TRANSITIONS`/authorization from "Audited — Order/Booking Status
+Business Rule" was reused as-is, not modified: `PENDING→CONFIRMED/CANCELLED`,
+`CONFIRMED→COMPLETED/CANCELLED`, `COMPLETED`/`CANCELLED` terminal, no new
+enum values, no schema change):
+
+* **Named action buttons replace the generic status `<select>`** on the
+  Booking Detail page — `components/admin/bookings/booking-status-form.tsx`
+  was rewritten so PENDING shows "Confirm Booking" + "Cancel Booking",
+  CONFIRMED shows "Mark as Completed" + "Cancel Booking", and COMPLETED/
+  CANCELLED show a static, non-actionable notice ("This service has been
+  completed." / "This booking has been cancelled.") instead of any button.
+  Every button is derived from `BOOKING_TRANSITIONS[status]`
+  (`lib/booking-status.ts`, unchanged) via a small `ACTION_CONFIG` lookup —
+  never a hand-maintained parallel list — so the UI structurally cannot
+  offer a transition the Server Action would reject.
+* **Three distinct confirmation dialogs**, not one generic one — deliberately
+  more specific than the Order form's single reused "change status" dialog,
+  per this task's explicit copy: "Confirm Booking" (PENDING→CONFIRMED, the
+  templated "change status from {from} to {to}?" wording, `[Cancel]`/
+  `[Confirm Change]`); a dedicated "Complete Service" dialog for
+  CONFIRMED→COMPLETED ("Are you sure the maintenance/service has been
+  completed?", `[Back]`/`[Confirm Completion]`) — completion is never
+  inferred from `preferredDate`/`preferredTime`, only this explicit admin
+  action ever sets `COMPLETED`; and a destructive "Cancel Booking" dialog
+  ("This action cannot be undone.", `[Back]`/`[Cancel Booking]`). Reuses
+  `components/ui/alert-dialog.tsx`'s `AlertDialogAction` `variant` prop
+  (added in the Order Status session) rather than changing that component.
+* **New `components/admin/bookings/booking-status-timeline.tsx`** — a
+  vertical "Booking Created → Pending → Confirmed → Completed" stepper
+  (done/current/upcoming per step), added to the Booking Detail page's
+  sidebar, structurally identical to `order-status-timeline.tsx` but with
+  Bookings' 3-step linear path. A cancelled booking shows "Booking Created"
+  done + a single red "Booking Cancelled" step (a full-sentence timeline
+  label, deliberately distinct from the short "Cancelled" status-badge
+  word) rather than guessing which linear step it passed through — same
+  honesty rule as the Order timeline: no status-history table exists, so
+  don't fabricate one.
+* **Layout**: `booking-detail-view.tsx`'s status section moved to a
+  full-width card directly under the page header (previously a sidebar
+  card next to Customer Info), matching the Order Detail page's layout —
+  current status and the next action are now the first thing on the page.
+* **List page**: audited, found already compliant — `admin-bookings-list.tsx`
+  already rendered status via the shared `StatusBadge` and the booking
+  number as a real, styled `<Link>` to the detail page; no changes needed.
+  Status labels (PENDING/CONFIRMED/COMPLETED/CANCELLED, EN+AR) were already
+  correct in `t.accountActivity` from an earlier session, including the
+  `"ملغي"` Arabic spelling fix already applied.
+* **Server-side security**: audited, unchanged —
+  `updateBookingStatus` (`app/admin/(dashboard)/bookings/actions.ts`)
+  already calls `getCurrentAdmin()` before validating the transition
+  against `BOOKING_TRANSITIONS` and mutating; grepped the codebase and
+  confirmed exactly one `prisma.booking.update` call site (that Server
+  Action) and that `updateBookingStatus`/`BOOKING_TRANSITIONS` are imported
+  nowhere under `app/(site)/**` or `components/account/**` — no
+  customer-reachable code path can mutate booking status.
+* **Verified**: `npx tsc --noEmit`, `npm run lint`, `npm run build` all
+  clean. The transition table itself (`lib/booking-status.ts`) was not
+  modified — it was exhaustively live-DB-verified (62/62 assertions,
+  including every blocked pair) in the earlier "Audited — Order/Booking
+  Status Business Rule" session; re-checked statically here against this
+  task's exact PASS/BLOCK list and confirmed still matching (`PENDING→
+  CONFIRMED`/`PENDING→CANCELLED`/`CONFIRMED→COMPLETED`/`CONFIRMED→CANCELLED`
+  all legal; `PENDING→COMPLETED`/`CONFIRMED→PENDING`/every `COMPLETED→*`/
+  every `CANCELLED→*` all blocked). No live-browser/Playwright pass this
+  session either (same unavailable-tooling limitation as every prior Admin
+  session) — new dialogs/timeline/buttons verified structurally (logical
+  Tailwind properties, reused RTL-safe primitives) and via the build output,
+  not by looking at them in a browser.
+* New: `components/admin/bookings/booking-status-timeline.tsx`. Modified:
+  `components/admin/bookings/{booking-status-form,booking-detail-view}.tsx`,
+  `lib/i18n/translations.ts` (new `adminBookings` status-management keys,
+  EN+AR). Nothing under `orders/`, `lib/booking-status.ts`, or
+  `app/admin/(dashboard)/bookings/actions.ts` was touched.
+
+Fixed — Dashboard Activity Chart Missing Bookings (same day, follow-up,
+found by the user testing the Booking Status UI above): the Dashboard's
+14-day chart empty-state copy (`t.adminDashboard.chartEmptyDescription`)
+always said *"Orders and bookings placed in the last 14 days will appear
+here"*, but the chart itself (`getOrdersTimeSeries` in `lib/admin-data.ts`)
+only ever queried `Order` rows — a booking placed today never appeared,
+contradicting its own copy. Given the choice between just fixing the
+misleading text or making the chart actually match it, the user chose the
+latter.
+
+* `lib/admin-data.ts`: `getOrdersTimeSeries` renamed to
+  `getActivityTimeSeries` and extended to also query `Booking` rows in the
+  same date range (excluding `CANCELLED`, mirroring how cancelled orders
+  are already excluded) — `DailyActivityPoint` gained a `bookings: number`
+  field. `revenue` deliberately stays Order-only (a `Booking.priceSnapshot`
+  is a different revenue stream — service vs. product — mixing them would
+  misrepresent both; matches `getAdminDashboardStats`'s existing
+  Order-only revenue reasoning, unchanged).
+* `components/admin/orders-chart.tsx` (`OrdersChart`, file/export name kept
+  as-is): added a third single-series mini bar chart for Bookings, using
+  `fill-warning` (amber, an existing token — also the PENDING status-badge
+  color) rather than a third green, so it's visually distinct from the
+  Orders/Revenue green bars. `hasActivity` now also checks `point.bookings`.
+* `lib/i18n/translations.ts`: added `adminDashboard.chartBookingsLegend`
+  ("Bookings"/"الحجوزات"); `chartHeading` updated from "Orders & Revenue" to
+  "Orders, Bookings & Revenue" (AR: "الطلبات والحجوزات والإيرادات").
+  `chartEmptyDescription` was left unchanged — it was already accurate
+  copy, just previously untrue; it's correct now that the chart matches it.
+* `app/admin/(dashboard)/page.tsx`: updated to call the renamed
+  `getActivityTimeSeries`.
+* Verified: `npx tsc --noEmit`, `npm run lint`, `npm run build` all clean.
+  Not re-verified against live data in this session (no throwaway script
+  run) — the fix was validated by reading the corrected query logic and a
+  clean production build. **This turned out to be incomplete** — see the
+  entry immediately below, found when the user tested it live and the
+  chart was still empty despite real same-day orders/bookings existing.
+
+Fixed — Dashboard Activity Chart Timezone Bucketing Bug (same day,
+immediate follow-up, found by the user still seeing "No activity yet"
+after the fix above and a dev-server restart): a real, pre-existing bug,
+not a caching/restart issue — confirmed by querying the live DB directly
+(5 orders + 1 booking existed for "today") and by reproducing the exact
+bucketing arithmetic in isolation.
+
+* **Root cause**: `getActivityTimeSeries` (and the `getOrdersTimeSeries` it
+  was renamed from, in the entry above — this bug predates this session
+  entirely, it was just never noticed before) built each bucket's local
+  midnight as a `Date`, then keyed it with `.toISOString().slice(0, 10)`.
+  `toISOString()` is UTC. The server runs in `Asia/Baghdad` (UTC+3), so a
+  local midnight instant is always `21:00` the *previous* UTC day —
+  `.slice(0, 10)` on it silently produces yesterday's date, shifting every
+  bucket key one day early across the whole 14-day range and permanently
+  excluding *today* from ever matching, while real event timestamps
+  (`order.createdAt`/`booking.createdAt`, genuine UTC instants) correctly
+  keyed to their real UTC date — so "today"'s orders/bookings could never
+  match any bucket. Reproduced directly: bucket keys computed as
+  `2026-08-18`…`2026-08-31` for a 14-day window ending "today"
+  (`2026-09-01`) — today's date never appears.
+* **Fix**: new `toLocalDateKey()` helper in `lib/admin-data.ts` — keys by
+  local `getFullYear()`/`getMonth()`/`getDate()` instead of
+  `toISOString()`, applied identically to both the bucket-generation loop
+  and the `order`/`booking` timestamp lookups (the two sides of a lookup
+  have to use the same conversion or they diverge exactly this way).
+  Re-reproduced the bucketing in isolation post-fix: the 14-day range now
+  correctly ends on `2026-09-01`, and both a same-day order and the same-day
+  booking now key-match into it.
+* This was an **Orders-only bug before this session too** — the original
+  `getOrdersTimeSeries` had the identical `.toISOString()` bucket-key logic
+  untouched since it was first written; it just went unnoticed because
+  nobody scrutinized "today"'s bar specifically until this troubleshooting.
+  Fixing it as part of this Bookings-chart work was in scope since the same
+  function now serves both.
+* Verified: `npx tsc --noEmit`, `npm run lint`, `npm run build` all clean;
+  the corrected bucketing logic was reproduced and checked against the
+  live DB's real order/booking timestamps (queried directly, via a
+  throwaway script, deleted after use) rather than assumed correct from
+  reading the code alone.
+* Modified: `lib/admin-data.ts` (`toLocalDateKey()` added,
+  `getActivityTimeSeries` updated to use it in both places). No other file
+  touched by this fix.
+
+Completed — Production Hardening: Footer → StoreSettings, Maintenance Mode,
+Playwright QA (same day, follow-up; picks up directly from "Next Phase"
+options (a) and (b) below, plus a real Playwright pass for (d) — Order/
+Booking status authorization was explicitly out of scope and untouched, per
+the task's own instruction):
+
+* **Footer wired to `StoreSettings`**: `app/(site)/layout.tsx` now fetches
+  `getOrCreateStoreSettings()` alongside `getCurrentCustomer()` (one
+  `Promise.all`) and passes it to `Footer`. `components/layout/footer/
+  footer.tsx` (`Footer({ settings })`) reads `contactPhone`/`contactEmail`/
+  `contactAddress`/`contactAddressAr` and the copyright line's store name
+  from that row instead of hardcoded strings; the address `<li>` is omitted
+  entirely when neither language's address is set (an empty-state decision,
+  not a blank line). The schema's defaults (`+966 11 234 5678`/
+  `support@speedcore.example`/`"Speed Core"`) were chosen in the earlier
+  Settings phase to exactly match what used to be hardcoded here, so a
+  never-touched settings row renders byte-identical content — confirmed
+  live via curl before and after. The Gauge-icon wordmark lockup was
+  deliberately **not** wired to `storeName` — that's brand identity (see
+  "Logo" in Design System Reference), not contact information.
+* **Real `maintenanceMode` enforcement**, via `proxy.ts` (project root) —
+  Next.js 16 deprecated `middleware.ts` in favor of `proxy.ts` (confirmed
+  against the installed 16.3.3: `next build` warns on `middleware.ts` and
+  labels the route "Proxy (Middleware)" either way). Runs in the
+  **Node.js runtime** — a `proxy.ts` file always does in Next 16 (an
+  explicit `runtime` in `config` is actually rejected at build time:
+  "Proxy always runs on Node.js runtime"), confirmed compatible with this
+  project's real `PrismaPg` driver adapter via an actual `next build`
+  before this was wired up for real — so the "don't force Prisma into an
+  Edge runtime" constraint never became a real tradeoff to make. Because it
+  runs in the same process as the rest of the server, `getOrCreateStoreSettings()`
+  reuses `lib/db.ts`'s existing pooled Prisma singleton (no second
+  connection pool).
+  * **Rewrite, not redirect** (`NextResponse.rewrite()`) — serves
+    `/maintenance`'s content for the original requested URL without
+    changing the browser's address bar or issuing a second request, so
+    there's no second pass through the proxy for the same navigation and
+    nothing to loop, by construction rather than by careful bookkeeping.
+  * **Scope**: `matcher` excludes `/admin/*`, `/maintenance` itself, and
+    static/well-known assets — "Admin Login and the entire Admin Dashboard
+    must remain accessible" is satisfied structurally, not by a runtime
+    check that could be gotten wrong. Non-GET requests (Server Action
+    POSTs) are explicitly passed through un-rewritten — rewriting a Server
+    Action POST would not reach the action it was dispatched for.
+  * **Defense-in-depth on the two real mutation paths**: `createOrder`
+    (`app/(site)/checkout/actions.ts`) and `createBooking`
+    (`app/(site)/booking/actions.ts`) independently re-check
+    `maintenanceMode` first and return a new `"maintenance"` error code —
+    a Server Action is directly callable regardless of what page rendered
+    its trigger (same rule this file's admin-auth sections already
+    document), so someone with `/checkout` already open before maintenance
+    was switched on could otherwise still place a real order. New
+    `checkout.errorMaintenance`/`booking.errorMaintenance` (EN+AR) surface
+    this in the existing error-message `Record` pattern both views already use.
+  * **Fails open**: if the `StoreSettings` read itself throws, the proxy
+    lets the request through as if maintenance mode were off rather than
+    taking the whole storefront down on top of whatever the real DB
+    problem is.
+  * **New route**: `app/maintenance/{layout,page}.tsx` +
+    `components/maintenance/maintenance-view.tsx` — a third independent
+    root layout (Next's "multiple root layouts" pattern `(site)` vs
+    `admin` already established), deliberately minimal: no Navbar/Footer/
+    CartProvider/customer-session read, so the notice itself has one
+    DB-free, statically-prerenderable render path (confirmed `○` in the
+    build output) even while the store is having real trouble. Reuses the
+    same Gauge-wordmark lockup as Footer/Navbar. New `maintenancePage`
+    translation block (EN+AR).
+  * Settings page's `maintenanceModeHint` corrected from "For future use —
+    no route currently checks this flag" (now false) to describe the real
+    behavior (EN+AR).
+* **Playwright installed and a real visual QA pass run** — the package was
+  present in name only before this session (a stale `.bin/playwright` shim,
+  no actual `playwright` module resolvable); installed for real
+  (`playwright` devDependency + `chromium` browser via `npx playwright
+  install chromium`) since every prior Admin session had explicitly flagged
+  "no Playwright install in this environment" as the reason RTL/responsive
+  verification stayed structural-only. A throwaway script (deleted after
+  use, same convention as prior sessions' `scripts/verify-admin-*.ts`)
+  created a temporary `Admin` + a validly HMAC-signed session cookie
+  (bypassing the login UI, not the auth mechanism — same approach the
+  inherited `verify-admin-http.ts` used) plus one temporary `Order` and one
+  temporary `Booking`, then drove a real Chromium browser against the real
+  `npm run dev` server:
+  * **47 screenshots** across English/LTR × Arabic/RTL × mobile (390×844) /
+    tablet (820×1180) / desktop (1440×900), covering: storefront home
+    (Footer), Admin Dashboard (sidebar, header, KPI cards, the Orders/
+    Bookings/Revenue chart), Bookings list (search/filter/sort/pagination
+    toolbar), **Booking Detail** (this session's main feature — status
+    card, named action buttons, timeline), Order Detail, Customers list,
+    Settings form — **zero console errors, zero horizontal-overflow pages**
+    across all 42 page×breakpoint×language combinations (checked via
+    `document.documentElement.scrollWidth` vs `clientWidth`).
+  * **Interaction**: clicked the real "Confirm Booking"/"تأكيد الحجز" button
+    on the Booking Detail page in both languages and screenshotted the
+    resulting dialog — confirmed the dialog title/description/button text
+    match this session's own spec exactly in both languages (including the
+    Arabic RTL button mirroring), then dismissed without confirming so the
+    temporary booking's state stayed clean for the rest of the run.
+  * **Loading state**: throttled the Bookings list's own request via
+    `page.route()` and screenshotted ~400ms into a fresh navigation,
+    genuinely capturing `admin-table-skeleton.tsx` mid-render rather than
+    guessing it looks right from the code.
+  * **Error state**: visited `/admin/bookings/does-not-exist-id` in both
+    languages — confirmed `app/admin/not-found.tsx` renders correctly, not
+    a raw error.
+  * Reviewed a representative sample of the screenshots directly (not just
+    "the script exited 0") — Booking Detail EN/AR desktop and mobile, both
+    confirm dialogs, the Dashboard chart (confirming the timezone-bug fix
+    and new Bookings series both work against real live data, not just the
+    earlier isolated reproduction), the Settings form, loading and 404
+    states — before reporting this pass as real.
+  * All temporary rows (`Admin`, `Customer`, `Order`+`OrderItem`,
+    `Booking`) deleted after the run; the throwaway script and its
+    screenshots (written to the session scratchpad, never the repo) are
+    not part of the committed project, matching this project's established
+    convention for verification scripts.
+* Verified: `npx tsc --noEmit`, `npm run lint`, `npm run build` all clean
+  throughout (including after the Playwright install and every fix it
+  surfaced). Order/Booking status transition logic, enums, and
+  authorization were **not touched** — per the task's explicit instruction,
+  confirmed by not modifying `lib/order-status.ts`, `lib/booking-status.ts`,
+  or either module's `actions.ts`.
+* New: `proxy.ts`, `app/maintenance/{layout,page}.tsx`,
+  `components/maintenance/maintenance-view.tsx`. Modified:
+  `app/(site)/layout.tsx`, `components/layout/footer/footer.tsx`,
+  `app/(site)/checkout/actions.ts`, `app/(site)/booking/actions.ts`,
+  `components/checkout/checkout-view.tsx`, `components/booking/booking-view.tsx`,
+  `lib/i18n/translations.ts` (`maintenancePage` block, `errorMaintenance`
+  keys, `maintenanceModeHint` correction — all EN+AR), `package.json`
+  (`playwright` devDependency).
+
+Completed — Storefront Playwright QA (same day, follow-up; the Admin
+Dashboard/Bookings/Orders/Customers/Settings pass above already covered
+that surface — this pass covers the rest of the storefront: Products,
+Product Details, Services, Service Details, Cart, Checkout, Booking,
+Authentication/Account. No redesign, no changes to Order/Booking status
+logic or Admin authorization — none were touched):
+
+* **86 routes checked, 92 screenshots** across English/LTR × Arabic/RTL ×
+  mobile (390×844) / tablet (820×1180) / desktop (1440×900), covering
+  Products list (default, category-filtered, price-sorted, page 2, empty
+  search results, a genuinely-captured loading skeleton via a throttled
+  route), Product Detail (image, discount strikethrough price, Low Stock
+  badge, key features, quantity stepper, related products), Services list,
+  Service Detail, Cart (empty state, real added-item state, quantity
+  increase), Login, Register, Booking (no-service state), and the two
+  intentional not-found pages (`/products/…`, `/services/…`) — **zero
+  horizontal overflow, zero failed/5xx requests** across every combination.
+* **Full real interactive flow run twice** (once fully in English, once
+  fully in Arabic, each its own temporary customer/order/booking, real
+  DB writes, cleaned up after): register (real form, auto-login) → add a
+  real discounted, low-stock product to cart from its detail page →
+  increase quantity → Checkout (empty-form validation screenshot, then a
+  real `createOrder` producing a real order number) → toggle
+  `maintenanceMode` on and confirm `/booking?service=…` itself rewrites to
+  the maintenance notice (proxy-level, matches the earlier Admin-session
+  fix) → toggle it back off → Booking (empty-form validation, then a real
+  `createBooking` producing a real booking number) → `/account/orders`
+  shows both the real order and booking with correct Pending badges →
+  **clicked into the real order-detail and booking-detail pages
+  specifically** (not just the list) and confirmed, both by screenshot and
+  by scanning the rendered HTML for every known admin status-mutation
+  button/label in both languages, that **none appear on any of the four
+  customer-facing pages checked (list + 2 detail pages, EN+AR = 6
+  checks, all `false`)** — customers can view status, never mutate it,
+  matching the business rule and the code-level separation already in
+  place (`components/account/*` vs `components/admin/{orders,bookings}/*`
+  are genuinely different components, not a shared one gated by a role
+  check that could be gotten wrong) → logout → real login with the same
+  credentials, confirmed.
+* **Zero genuine application bugs found.** Three issues surfaced during
+  the pass, and all three turned out to be test-script problems, not app
+  problems — verified in each case before concluding that, not assumed:
+  1. A recurring `style={{caret-color:"transparent"}}` hydration warning on
+     `type="search"` inputs — confirmed via `grep` that no `caret-color`
+     exists anywhere in this codebase; this is a Chromium/Playwright
+     automation artifact on search inputs, not app-generated markup.
+  2. `getByRole('link', { name: 'Book This Service' })` hit a real Playwright
+     strict-mode violation — the service detail page's own "Related
+     services" section legitimately renders a second link with identical
+     text, which is correct, intentional UI (the same `ServiceItemCard` is
+     reused there on purpose — see "Completed — Phase 5"), not a bug.
+     Fixed in the *script* (added `.first()` / switched to an `href`-based
+     selector).
+  3. A silent Add-to-Cart no-op in the Arabic flow only — traced to a real
+     Playwright/Next.js gotcha, not a language-specific app bug:
+     `page.goto(..., { waitUntil: "load" })` resolves on the browser's
+     `load` event, not once React finishes hydrating; the Arabic run's
+     slightly different font-load timing (IBM Plex Sans Arabic vs Geist)
+     was enough for an immediate click to race ahead of the `onClick`
+     handler being attached, landing on a server-rendered-but-not-yet-
+     interactive button. Fixed by adding a settle delay after every
+     navigation that's immediately followed by an interaction
+     (`gotoAndSettle()` in the script) — ran the full suite twice more
+     after this fix, both times clean, to confirm it wasn't a fluke.
+* Verified: `npx tsc --noEmit`, `npm run lint`, `npm run build` all clean.
+  **No application file was modified this pass** — every fix above was to
+  the throwaway QA script (`scripts/qa-storefront-tmp.ts`, deleted after
+  use, same convention as every prior verification script this project
+  has used) — confirmed via `git status` showing no tracked app file
+  touched.
+
+Fixed — Admin Dashboard Mobile/Tablet Responsiveness (same day, follow-up;
+explicit re-audit requested because the earlier Admin Dashboard/Production
+Hardening Playwright passes had reported zero overflow but the dashboard
+was not actually usable on phones — this session found why and fixed the
+real causes rather than re-trusting the same metric):
+
+* **Root-cause bug, not cosmetic**: `AdminMobileNav`'s off-canvas drawer
+  (`components/admin/admin-mobile-nav.tsx`) rendered as a DOM descendant of
+  `AdminHeader`'s `<header>`, which uses `backdrop-blur`. `backdrop-filter`
+  establishes a new containing block for `position: fixed` descendants in
+  Chromium/Firefox — so the drawer's `fixed inset-0` resolved against the
+  header's own 64px box instead of the viewport, collapsing the "full-screen"
+  overlay + nav panel to a 64px sliver. The drawer was **functionally
+  broken on every phone/tablet width** (most nav links unreachable, no real
+  dimmed backdrop) — invisible to `document.scrollWidth` overflow checks
+  (nothing scrolled the page) and to every prior session's screenshot pass,
+  none of which had actually opened the drawer and looked. Found only by
+  driving a real click and reading the panel's live `getBoundingClientRect()`
+  in a throwaway diagnostic script — exactly the "don't rely only on
+  automated overflow checks" instruction this task itself gave. Fixed by
+  portaling the drawer's overlay + panel to `document.body` via
+  `createPortal` (guarded by a mount check using the
+  `useSyncExternalStore`-with-a-no-op-subscribe pattern this codebase
+  already uses for "client-only, no `setState`-in-effect" values — see
+  `language-provider.tsx`/`admin-sidebar.tsx`), so it no longer sits inside
+  any ancestor that could reparent its containing block. Verified in a real
+  browser at 375px, both languages: full-height drawer, correctly dimmed/
+  blurred backdrop, all 9 nav links reachable, opens from the correct edge
+  in RTL.
+* **Admin Header, mobile**: previously showed no page title and no reachable
+  language toggle below `sm` (640px) — the breadcrumb and language button
+  were both `hidden … sm:flex`. Added a truncating current-section title
+  visible on mobile (`admin-header.tsx`), collapsed the always-visible quick
+  search bar into a search icon that opens a full-width search row (back
+  arrow + input, RTL-aware) instead of squeezing a live text field in next
+  to everything else, and added the language toggle to the mobile drawer's
+  footer (next to Log Out) so the control isn't lost, just relocated. Capped
+  the notifications/profile dropdown panel widths with
+  `max-w-[calc(100vw-2rem)]` — at 320px their fixed `w-72`/`w-64` could
+  overhang the viewport edge.
+* **All 7 Admin list tables** (Products, Service Categories, Subservices,
+  Services, Orders, Bookings, Customers) — previously a single
+  `overflow-x-auto` table down to 320px (dense columns shrunk illegibly,
+  the exact "superficial fix" this task said not to ship). Each now renders
+  a `hidden md:block` table (unchanged) alongside a `md:hidden` card list —
+  one card per row, same data/actions, no horizontal scroll on any phone
+  width. Products/Services/Service Categories/Subservices cards keep the
+  existing `RowActions` edit/delete; Orders/Bookings/Customers cards are
+  themselves the tappable link to the detail page. Every toolbar
+  (search/status/category/sort/date-range) now stacks full-width in a
+  column below `sm` instead of wrapping fixed-width pills; Orders/Bookings'
+  two date inputs sit as a 2-column grid on mobile rather than each on its
+  own full-width row. `AdminListHeader`'s "Add New" button is full-width on
+  mobile, auto-width from `sm` up.
+* **Touch targets**: `RowActions`' edit/delete icon buttons were `size-8`
+  (32px), the smallest interactive element in the whole Admin shell (every
+  other icon button — header, sidebar, drawer — is already `size-9`/36px or
+  the `min-h-11`/44px nav-item pattern); bumped to `size-9` to match the
+  shell's own existing scale rather than jumping to 44px and reading
+  oversized next to it.
+* **Order Detail's line-items table** (4 columns, `min-w-[480px]`) — added
+  a `sm:hidden` stacked block (name / line total, then qty × unit price)
+  alongside the unchanged `hidden sm:block` table, so it doesn't need its
+  own horizontal scroll at phone widths either.
+* **A false alarm, chased down and ruled out, not hand-waved away**: an
+  initial Playwright pass flagged real `scrollWidth` overflow on the
+  Products/Subservices/Services mobile cards, only in Arabic, only at
+  ≤430px. Traced to the QA script's own timing, not the app: this project's
+  language provider always server-renders `lang="en" dir="ltr"` and resyncs
+  to the stored preference right after hydration (documented, pre-existing
+  behavior). The script measured `scrollWidth` and screenshotted before
+  that resync settled on heavier list pages, catching a transient
+  mid-hydration frame. Fixed the script to wait for `document.dir` to
+  match the expected language before measuring, then reproduced 0/12
+  overflow across products/subservices/services × 320–430px — confirmed
+  clean. No application code changed for this one; flagged here so a future
+  session doesn't waste time re-chasing the same false positive.
+* **Verified against a real Chromium browser** (not just `scrollWidth`), a
+  real `next dev` server, and a temporary signed admin session cookie (same
+  bypass-the-login-UI-not-the-mechanism convention as every prior Admin
+  verification script): 120 checks — the Dashboard, Products list, and
+  Order Detail pages swept across all 10 requested viewports (320×844
+  through 1920×1080) × English/LTR + Arabic/RTL (zero overflow, zero
+  console errors); the remaining 10 modules/pages (Service Categories,
+  Subservices, Services, Bookings, Customers, Settings, the Product
+  create form, Login, Booking Detail, Customer Detail) checked at
+  375×844/768×1024/1440×900 × both languages. Interaction screenshots:
+  mobile drawer (EN+AR), mobile search overlay (EN), a product's delete
+  confirmation dialog (EN+AR), and an order's status-change confirmation
+  dialog (EN+AR) — all reviewed directly, not just pass/fail. All temporary
+  Admin rows and dev-server/browser processes cleaned up after (checked via
+  `tasklist`/a DB query, not assumed). `npx tsc --noEmit`, `npm run lint`,
+  `npm run build` all clean throughout, including after the drawer fix.
+* **Not touched, per this task's explicit constraints**: Prisma schema,
+  migrations, authentication/session logic, order/booking status
+  transitions, API contracts, and routing — confirmed by `git status`
+  showing no file under `prisma/`, `lib/auth/`, `lib/order-status.ts`,
+  `lib/booking-status.ts`, or any `actions.ts` touched.
+* New: none (no new components — every fix landed in existing files).
+  Modified: `components/admin/admin-mobile-nav.tsx`,
+  `components/admin/admin-header.tsx`, `components/admin/row-actions.tsx`,
+  `components/admin/admin-list-header.tsx`, `components/admin/list/
+  admin-search-box.tsx`, all 7 `components/admin/lists/*.tsx`,
+  `components/admin/orders/order-detail-view.tsx`,
+  `lib/i18n/translations.ts` (`adminHeader.openSearch`/`closeSearch`, EN+AR).
+
 In Progress:
 
 * None
 
 Next Phase:
 
-`PHASE 8 — Responsive Refinement` was never explicitly run as its own phase
-(the About Page and Customer Account sessions each did their own targeted
-responsive/RTL verification instead). Suggested next: a dedicated
-Responsive Refinement pass across the *whole* site now that Products,
-Services, About, and Account all exist, or a password-reset flow for the
-Customer Account phase's `Customer.passwordHash` (currently no recovery
-path if a customer forgets their password) — ask the user which.
+Ask the user which: (a) bulk actions on the admin tables, (b)
+`PHASE 8 — Responsive Refinement` for the storefront — the Admin surface's
+mobile/tablet pass is now done for real (see "Fixed — Admin Dashboard
+Mobile/Tablet Responsiveness"), but a few storefront corners remain
+unchecked (see Known Issues), or (c) a password-reset flow for Customer
+Account.
 
 Known Issues:
 
-* Nav/footer link to `/about` no longer 404s (About Page phase built it). `/services`, `/cart`, `/checkout`, `/booking`, `/account`, `/login`, `/register` also don't 404.
-* `/products`' error state (try/catch in `fetch-products.ts`) has no natural trigger against mock data (nothing there can actually fail) — verified in an earlier session by temporarily forcing the promise to reject, screenshotting the resulting `EmptyState`/Retry UI, then reverting the forced failure before finishing; it becomes truly live once a real API replaces the mock fetch. Services has the same limitation and wasn't force-tested the same way.
-* `Service.slug` is only DB-unique per-subservice (`@@unique([subserviceId, slug])`), not globally, but `/services/[id]` (and `/booking`'s service resolution) match by slug across *all* services. Current seed data (31 services) has no cross-subservice collisions, so this works today; a real API-backed version should either confirm that still holds or resolve by `id` instead.
-* The database foundation is now read from in three places — `app/checkout/actions.ts`, `app/booking/actions.ts` (writes), and the whole Customer Account feature (reads + writes) — but the *catalog* (`/products`, `/services`, the homepage) is still 100% `lib/mock/*.ts`; nothing reads product/service listings from the DB yet. Wiring real catalog queries in is follow-up work, not part of any phase as currently scoped; ask the user before doing it under a phase that doesn't mention it.
+* Nav/footer link to `/about` no longer 404s (About Page phase built it). `/services`, `/cart`, `/checkout`, `/booking`, `/account`, `/login`, `/register`, `/admin`, `/admin/login` also don't 404.
+* `/products`' error state (try/catch in `fetch-products.ts`) has no natural trigger against mock data (nothing there can actually fail) — verified in an earlier session by temporarily forcing the promise to reject, screenshotting the resulting `EmptyState`/Retry UI, then reverting the forced failure before finishing. Services has the same limitation and wasn't force-tested the same way. **Update**: the catalog is now DB-backed (see "Completed — Admin Dashboard" → "Inherited state"), so this is closer to live than when originally written, but the try/catch itself is unchanged.
+* `Service.slug` is only DB-unique per-subservice (`@@unique([subserviceId, slug])`), not globally, but `/services/[id]` (and `/booking`'s service resolution) match by slug across *all* services. Current seed data (31 services) has no cross-subservice collisions, so this works today; the admin Service create form generates slugs scoped per-subservice (matching the constraint) but doesn't check for a cross-subservice collision against the public lookup — same latent issue, now flagged in the code that could reintroduce it, not just the routes that read it.
 * No payment provider exists — Checkout explicitly tells the customer no online payment is processed and the order is a request; this is by design per Phase 7's Step 5, not a gap to silently fix later without a product decision on a real payment provider.
-* No password-reset/forgot-password flow exists for the new Customer Account login — a customer who forgets their password currently has no self-service recovery path (there's no email-sending infrastructure in this project to build one on top of). Flagged, not fixed — needs a product decision on how to send a reset link/code before it can be built.
-* Every route is now server-rendered per-request (`ƒ`) instead of statically prerendered — see the "Known, accepted trade-off" note under "Completed — Customer Account" above. Revisit only if real performance data shows this matters; do not "fix" it speculatively (see the Performance rules in this file).
+* No password-reset/forgot-password flow exists for the Customer Account login — a customer who forgets their password currently has no self-service recovery path (there's no email-sending infrastructure in this project to build one on top of). Flagged, not fixed — needs a product decision on how to send a reset link/code before it can be built.
+* Every storefront route is server-rendered per-request (`ƒ`) instead of statically prerendered — see the "Known, accepted trade-off" note under "Completed — Customer Account". Every `/admin/*` route is `ƒ` too, for the same reason (session cookie reads) plus it being an authenticated admin surface, which is never a candidate for static prerendering anyway. `/maintenance` itself is the one new exception — statically prerendered (`○`), since it deliberately reads no session/DB data.
+* No bulk actions (bulk delete/status-change) on any admin table.
+* No real file upload for product images — the Product form takes an image URL (a path under `/public` or a full URL), matching what the schema (`ProductImage.url`, a plain string) and this project's existing architecture actually support. Real uploads need a storage decision (Supabase Storage, S3, etc.) not made here.
+* The Dashboard's chart is deliberately kept LTR-oriented even in RTL mode (see its own code comment for why) — a considered exception, not an oversight.
+* A dedicated Playwright pass over Products/Product Detail/Services/Service Detail/Cart/Checkout/Booking/Account now exists (see "Completed — Storefront Playwright QA") — 86 routes, EN+AR × mobile/tablet/desktop, zero overflow/console/5xx findings, plus twice-repeated full register→cart→checkout→booking→account interactive flows. Not yet covered by a dedicated pass: `/about`, the homepage's other sections beyond the hero/footer, and the Services list's accordion-expand interaction specifically (visited the page and a service detail directly, not the expand-to-reveal click path).
+* No Category/Subcategory admin management exists (the Product form assigns an *existing* category/subcategory via a select; there's no way to create/edit/delete one from the admin) — not part of the requested Admin information architecture, which lists "Products" but not a separate "Categories" section.
 
 Not done deliberately (out of scope, per explicit instructions):
 
 * No light/dark theme toggle — Speed Core is a single dark theme by design (see "Brand"); the scaffold's separate `.dark` token block was removed as dead code in the rebrand, not left half-wired
-* No global Search (only planned in "Main Routes"/"Search" sections of this file — not part of the Phase 2/3 first screen)
+* No global Search on the storefront (only planned in "Main Routes"/"Search" sections of this file — not part of the Phase 2/3 first screen). The Admin *does* now have a real quick-search (Products/Customers/Orders) — see "Completed — Admin Dashboard" — that's a separate, admin-only surface and doesn't fulfill this storefront item.
 * "Benefits/Trust" and "Offers/Promotions" (listed under "Homepage" above) were folded into the Hero's trust chips / omitted respectively, at the user's explicit narrower section list for this build — revisit if a dedicated section is wanted later
 * No real logo asset — see "Brand" in Design System Reference for the temporary text-based treatment and what to do when one exists
-* No Admin Dashboard, no API routes beyond the Checkout/Booking/Account Server Actions — still explicitly out of scope. Customer authentication is no longer out of scope as of this session (see "Completed — Customer Account") — it was added deliberately, at the user's explicit direction, after the audit above surfaced that this phase couldn't be built without it; Admin authentication remains untouched/nonexistent.
+* No JWT, no Clerk, no second authentication system for Admin — the existing first-party HMAC-signed session (see "Completed — Admin Dashboard" → "Inherited state") was kept and extended, not replaced, after the user confirmed this project doesn't actually use Clerk (that's a different project on the same machine).
 
 ---
 

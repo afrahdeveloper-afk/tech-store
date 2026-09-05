@@ -15,10 +15,22 @@ import { cookies } from "next/headers";
 const COOKIE_NAME = "speedcore_session";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
+// Stage 10 — Secrets/Environment hardening: a minimum length, not just
+// presence, is checked below — a short/placeholder value (e.g. a stray
+// "test" or "changeme" someone pasted in) would satisfy the old `!secret`
+// check while producing a weak, brute-forceable HMAC key. 32 characters is
+// comfortably below the real value's actual length (64, per .env.example's
+// own "64_CHAR_HEX_STRING" guidance) but still enough entropy to catch an
+// obviously-inadequate value without hand-rolling a stricter format check.
+const MIN_SECRET_LENGTH = 32;
+
 function getSecret(): string {
   const secret = process.env.SESSION_SECRET;
   if (!secret) {
     throw new Error("SESSION_SECRET is not set — see .env.example.");
+  }
+  if (secret.length < MIN_SECRET_LENGTH) {
+    throw new Error(`SESSION_SECRET is too short (must be at least ${MIN_SECRET_LENGTH} characters) — see .env.example.`);
   }
   return secret;
 }

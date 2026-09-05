@@ -37,10 +37,12 @@ export function ServiceItemCard({ service, lang, t }: { service: Service; lang: 
       <Body className="line-clamp-2 text-sm text-muted-foreground">{description}</Body>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <Clock className="size-3.5" aria-hidden="true" />
-          {service.durationMinutes} {t.services.minutesLabel}
-        </span>
+        {service.durationMinutes != null ? (
+          <span className="flex items-center gap-1.5">
+            <Clock className="size-3.5" aria-hidden="true" />
+            {service.durationMinutes} {t.services.minutesLabel}
+          </span>
+        ) : null}
         <span className="ms-auto font-mono text-base font-semibold text-primary">
           {service.price.toLocaleString(lang === "ar" ? "ar-SA" : "en-US")} {service.currency}
         </span>

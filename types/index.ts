@@ -47,13 +47,38 @@ export interface Product {
   /** Short bullet points shown on the product details page (e.g. key specs). */
   highlights?: string[];
   highlightsAr?: string[];
-  image: string;
+  /** Primary photo URL, or `null` when the product has no uploaded photo yet — never `""` (see `lib/products-data.ts`'s mapping and `components/shared/image-placeholder.tsx`). */
+  image: string | null;
   price: number;
   discountPrice?: number;
   currency: string;
   categoryId: string;
   subcategoryId?: string;
   stockState: StockState;
+  /**
+   * The parent category's display name, denormalized onto the product read
+   * model by `lib/products-data.ts` (a joined query) so `ProductCard`/
+   * `ProductDetailView` — reusable Client Components rendered from many call
+   * sites — can show it without each needing the full `Category[]` list as a
+   * prop. Optional because `lib/mock/products.ts` (still used by Checkout/
+   * Booking/Cart, see CLAUDE.md) doesn't carry it.
+   */
+  categoryName?: string;
+  categoryNameAr?: string;
+  /**
+   * The product's full, ordered image set (Global Image System / Product
+   * Gallery) — optional because only `getProductBySlug` (the detail page)
+   * fetches it; list/card views keep reading just `image` (the primary
+   * thumbnail) to avoid fetching a full gallery per grid card.
+   */
+  images?: ProductImageRef[];
+}
+
+/** One image in a `Product`'s gallery — see `Product.images`. */
+export interface ProductImageRef {
+  id: string;
+  url: string;
+  isPrimary: boolean;
 }
 
 export interface ServiceCategory {
@@ -98,7 +123,8 @@ export interface Service {
   descriptionAr?: string;
   price: number;
   currency: string;
-  durationMinutes: number;
+  /** Nullable in the schema — an admin can leave a service's duration unset ("Duration when available"). */
+  durationMinutes?: number;
   subserviceId: string;
   /** `lucide-react` export name, for a details-page hero tile when no `image` exists. */
   image?: string;
@@ -117,7 +143,8 @@ export interface CartItem {
   slug: string;
   name: string;
   nameAr?: string;
-  image: string;
+  /** See `Product.image` — `null` when the product had no photo at add-to-cart time. */
+  image: string | null;
   /** Unit price at add-to-cart time (the discounted price when one applies). */
   price: number;
   currency: string;

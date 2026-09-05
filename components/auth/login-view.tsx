@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, Loader2 } from "lucide-react";
 
 import { useLanguage } from "@/components/providers/language-provider";
-import { isValidEmail } from "@/lib/validation";
-import { login, type LoginErrorCode } from "@/app/login/actions";
+import { isValidEmail, MAX_EMAIL_LENGTH, MAX_PASSWORD_LENGTH } from "@/lib/validation";
+import { login, type LoginErrorCode } from "@/app/(site)/login/actions";
 import { Container } from "@/components/ui/container";
 import { Button } from "@/components/ui/button";
 import { Caption, Display, Body } from "@/components/ui/typography";
@@ -37,6 +37,7 @@ export function LoginView({ next = "/account" }: { next?: string }) {
     "missing-fields": t.auth.errorRequired,
     "invalid-email": t.auth.errorEmail,
     "invalid-credentials": t.auth.errorInvalidCredentials,
+    "rate-limited": t.auth.errorRateLimited,
     "server-error": t.auth.errorServer,
   };
 
@@ -92,6 +93,7 @@ export function LoginView({ next = "/account" }: { next?: string }) {
           error={fieldErrors.email}
           autoComplete="email"
           dir="ltr"
+          maxLength={MAX_EMAIL_LENGTH}
         />
         <FormField
           id="password"
@@ -103,6 +105,7 @@ export function LoginView({ next = "/account" }: { next?: string }) {
           error={fieldErrors.password}
           autoComplete="current-password"
           dir="ltr"
+          maxLength={MAX_PASSWORD_LENGTH}
         />
 
         {status === "error" && errorCode ? (

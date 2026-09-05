@@ -3,9 +3,8 @@
 import * as React from "react";
 import { ChevronDown } from "lucide-react";
 
+import type { Service, ServiceCategory, Subservice } from "@/types";
 import { useLanguage } from "@/components/providers/language-provider";
-import { mockServiceCategories } from "@/lib/mock/services";
-import { mockSubservices } from "@/lib/mock/subservices";
 import { iconMap } from "@/lib/icon-map";
 import { cn } from "@/lib/utils";
 import { Body } from "@/components/ui/typography";
@@ -23,19 +22,31 @@ import { SubserviceList } from "./subservice-list";
  * `/services/[id]` (the flat details route Step 6 calls for, mirroring
  * `/products/[id]`) — this sidesteps that without adding a route CLAUDE.md's
  * "Main Routes" doesn't list.
+ *
+ * `categories`/`subservices`/`services` are fetched server-side (real
+ * Prisma queries, Phase 12b) by `app/(site)/services/(list)/page.tsx` and
+ * passed down — this component can't call Prisma itself (Client Component).
  */
-export function ServiceCategoriesExplorer() {
+export function ServiceCategoriesExplorer({
+  categories,
+  subservices,
+  services,
+}: {
+  categories: ServiceCategory[];
+  subservices: Subservice[];
+  services: Service[];
+}) {
   const { lang, t } = useLanguage();
   const [expandedCategoryId, setExpandedCategoryId] = React.useState<string | null>(null);
 
   return (
     <div className="flex flex-col gap-4">
-      {mockServiceCategories.map((category) => {
+      {categories.map((category) => {
         const Icon = category.icon ? iconMap[category.icon] : undefined;
         const name = lang === "ar" ? category.nameAr ?? category.name : category.name;
         const description = lang === "ar" ? category.descriptionAr ?? category.description : category.description;
         const isOpen = expandedCategoryId === category.id;
-        const subservices = mockSubservices.filter((s) => s.serviceCategoryId === category.id);
+        const categorySubservices = subservices.filter((s) => s.serviceCategoryId === category.id);
         const panelId = `category-panel-${category.id}`;
 
         return (
@@ -71,7 +82,7 @@ export function ServiceCategoriesExplorer() {
 
             {isOpen ? (
               <div id={panelId} className="border-t border-border bg-background/40 p-4 sm:p-5">
-                <SubserviceList subservices={subservices} lang={lang} t={t} />
+                <SubserviceList subservices={categorySubservices} services={services} lang={lang} t={t} />
               </div>
             ) : null}
           </div>

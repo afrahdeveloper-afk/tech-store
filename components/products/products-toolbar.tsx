@@ -4,7 +4,7 @@ import { Search, X } from "lucide-react";
 
 import type { Category, Subcategory } from "@/types";
 import type { Dictionary, Lang } from "@/lib/i18n/translations";
-import type { ProductSort } from "@/lib/mock/fetch-products";
+import type { ProductSort } from "@/lib/products-data";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";

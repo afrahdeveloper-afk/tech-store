@@ -6,8 +6,15 @@ import { AlertTriangle, CheckCircle2, Loader2, ShoppingCart } from "lucide-react
 
 import { useLanguage } from "@/components/providers/language-provider";
 import { useCart } from "@/components/providers/cart-provider";
-import { isValidEmail, isValidPhone } from "@/lib/validation";
-import { createOrder, type CheckoutErrorCode } from "@/app/checkout/actions";
+import {
+  isValidEmail,
+  isValidPhone,
+  exceedsMaxLength,
+  MAX_NAME_LENGTH,
+  MAX_EMAIL_LENGTH,
+  MAX_PHONE_LENGTH,
+} from "@/lib/validation";
+import { createOrder, type CheckoutErrorCode } from "@/app/(site)/checkout/actions";
 import { Container } from "@/components/ui/container";
 import { Button } from "@/components/ui/button";
 import { Caption, Display, Body, H2, Small } from "@/components/ui/typography";
@@ -53,20 +60,25 @@ export function CheckoutView() {
 
   const errorMessage: Record<CheckoutErrorCode, string> = {
     "missing-fields": t.checkout.errorRequired,
+    "invalid-length": t.checkout.errorTooLong,
     "invalid-email": t.checkout.errorEmail,
     "invalid-phone": t.checkout.errorPhone,
     "empty-cart": t.checkout.emptyCartDescription,
     "invalid-product": t.checkout.submissionErrorDescription,
     "out-of-stock": t.checkout.submissionErrorDescription,
+    maintenance: t.checkout.errorMaintenance,
     "server-error": t.checkout.submissionErrorDescription,
   };
 
   const validate = (): FieldErrors => {
     const errors: FieldErrors = {};
     if (!customerName.trim()) errors.customerName = t.checkout.errorRequired;
+    else if (exceedsMaxLength(customerName.trim(), MAX_NAME_LENGTH)) errors.customerName = t.checkout.errorTooLong;
     if (!customerEmail.trim()) errors.customerEmail = t.checkout.errorRequired;
+    else if (exceedsMaxLength(customerEmail.trim(), MAX_EMAIL_LENGTH)) errors.customerEmail = t.checkout.errorTooLong;
     else if (!isValidEmail(customerEmail)) errors.customerEmail = t.checkout.errorEmail;
     if (!customerPhone.trim()) errors.customerPhone = t.checkout.errorRequired;
+    else if (exceedsMaxLength(customerPhone.trim(), MAX_PHONE_LENGTH)) errors.customerPhone = t.checkout.errorTooLong;
     else if (!isValidPhone(customerPhone)) errors.customerPhone = t.checkout.errorPhone;
     return errors;
   };
@@ -163,6 +175,7 @@ export function CheckoutView() {
             onChange={setCustomerName}
             error={fieldErrors.customerName}
             autoComplete="name"
+            maxLength={MAX_NAME_LENGTH}
           />
           <FormField
             id="customerEmail"
@@ -174,6 +187,7 @@ export function CheckoutView() {
             error={fieldErrors.customerEmail}
             autoComplete="email"
             dir="ltr"
+            maxLength={MAX_EMAIL_LENGTH}
           />
           <FormField
             id="customerPhone"
@@ -185,6 +199,7 @@ export function CheckoutView() {
             error={fieldErrors.customerPhone}
             autoComplete="tel"
             dir="ltr"
+            maxLength={MAX_PHONE_LENGTH}
           />
 
           <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-muted/40 p-4">

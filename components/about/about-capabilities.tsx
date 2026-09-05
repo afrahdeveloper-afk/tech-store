@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
-import { mockServiceCategories } from "@/lib/mock/services";
+import type { ServiceCategory } from "@/types";
 import { useLanguage } from "@/components/providers/language-provider";
 import { iconMap } from "@/lib/icon-map";
 import { Container } from "@/components/ui/container";
@@ -13,13 +13,15 @@ import { Button } from "@/components/ui/button";
 
 /**
  * Connects the About page to the real `/services` catalog without
- * duplicating it — reuses `mockServiceCategories` (the same domain data
- * `ServicesOverview` renders as full cards on the homepage) as a compact,
- * name-only chip list, plus one CTA to the actual services page. Deliberately
- * lighter-weight than `ServiceCard`'s full description cards so this reads
- * as a summary, not a second copy of the homepage section.
+ * duplicating it — reuses `serviceCategories` (the same domain data
+ * `ServicesOverview` renders as full cards on the homepage — a real Prisma
+ * query, Phase 12b, fetched by `app/(site)/about/page.tsx` and passed down)
+ * as a compact, name-only chip list, plus one CTA to the actual services
+ * page. Deliberately lighter-weight than `ServiceCard`'s full description
+ * cards so this reads as a summary, not a second copy of the homepage
+ * section.
  */
-export function AboutCapabilities() {
+export function AboutCapabilities({ serviceCategories }: { serviceCategories: ServiceCategory[] }) {
   const { t, lang } = useLanguage();
 
   return (
@@ -34,7 +36,7 @@ export function AboutCapabilities() {
         />
 
         <Reveal className="flex flex-wrap justify-center gap-3">
-          {mockServiceCategories.map((category) => {
+          {serviceCategories.map((category) => {
             const Icon = category.icon ? iconMap[category.icon] : undefined;
             const name = lang === "ar" ? category.nameAr ?? category.name : category.name;
             return (

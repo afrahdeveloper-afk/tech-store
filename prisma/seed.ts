@@ -134,26 +134,32 @@ async function seedProducts() {
       },
     });
 
-    await prisma.productImage.upsert({
-      where: { id: `${product.id}-img-primary` },
-      update: {
-        url: product.image,
-        altText: product.name,
-        altTextAr: product.nameAr,
-        isPrimary: true,
-        sortOrder: 0,
-        productId: product.id,
-      },
-      create: {
-        id: `${product.id}-img-primary`,
-        url: product.image,
-        altText: product.name,
-        altTextAr: product.nameAr,
-        isPrimary: true,
-        sortOrder: 0,
-        productId: product.id,
-      },
-    });
+    // Mock data always has a real image path today, but `Product.image` is
+    // typed `string | null` (matching the live DB, where a product can
+    // genuinely have zero photos — see types/index.ts) — skip creating a
+    // primary image row rather than seeding one with no real URL.
+    if (product.image) {
+      await prisma.productImage.upsert({
+        where: { id: `${product.id}-img-primary` },
+        update: {
+          url: product.image,
+          altText: product.name,
+          altTextAr: product.nameAr,
+          isPrimary: true,
+          sortOrder: 0,
+          productId: product.id,
+        },
+        create: {
+          id: `${product.id}-img-primary`,
+          url: product.image,
+          altText: product.name,
+          altTextAr: product.nameAr,
+          isPrimary: true,
+          sortOrder: 0,
+          productId: product.id,
+        },
+      });
+    }
   }
   console.log(`Seeded ${mockProducts.length} products (+ primary images)`);
 }
