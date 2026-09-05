@@ -16,14 +16,35 @@ jobs:
   build:
     name: Type-check, lint, and build
     runs-on: ubuntu-latest
+    # Job-level env, not just on the Build step: `npm ci` itself runs this
+    # repo's `postinstall` (`prisma generate`), which loads `prisma7.config.ts`
+    # — that file reads `DIRECT_URL` at config-load time, so it must already
+    # be set before `npm ci` runs, not only later at the `next build` step.
+    # (First run of this workflow failed exactly here: "Cannot resolve
+    # environment variable: DIRECT_URL" — moving these to job level fixes it.)
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+      ADMIN_SESSION_SECRET: ${{ secrets.ADMIN_SESSION_SECRET }}
+      NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_PRODUCTS_BUCKET: ${{ secrets.SUPABASE_PRODUCTS_BUCKET }}
+      SUPABASE_BOOKINGS_BUCKET: ${{ secrets.SUPABASE_BOOKINGS_BUCKET }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Node 22 — some transitive dependencies (@supabase/* sub-packages,
+      # @prisma/streams-local) now declare an `engines.node >=22` requirement;
+      # Node 20 still installs fine (npm only warns, EBADENGINE is not fatal)
+      # but 22 matches what those packages actually expect and clears the
+      # warning noise.
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       # `npm ci` — deterministic install; also runs this repo's `postinstall`
@@ -38,21 +59,8 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      # `next build` performs real static generation for the product/service
-      # detail pages and `/sitemap.xml`, which query the live database (the
-      # same thing a real deployment's build step does) — these secrets must
-      # be configured under Settings → Secrets and variables → Actions for
-      # this step to succeed. See the repo's `.env.example` for what each
-      # one is and how to generate it.
+      # Performs real static generation for the product/service detail pages
+      # and `/sitemap.xml`, which query the live database — the same thing a
+      # real deployment's build step does.
       - name: Build
         run: npm run build
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          DIRECT_URL: ${{ secrets.DIRECT_URL }}
-          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
-          ADMIN_SESSION_SECRET: ${{ secrets.ADMIN_SESSION_SECRET }}
-          NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_PRODUCTS_BUCKET: ${{ secrets.SUPABASE_PRODUCTS_BUCKET }}
-          SUPABASE_BOOKINGS_BUCKET: ${{ secrets.SUPABASE_BOOKINGS_BUCKET }}
