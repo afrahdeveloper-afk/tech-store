@@ -22,21 +22,47 @@
  *   pool_size: 15" — `DATABASE_URL` uses the session pooler, port 5432, see
  *   the Database Foundation note in CLAUDE.md). 7 workers × 3 stays
  *   comfortably under 15 with room for `prisma migrate`/Studio alongside.
- * - **Runtime** (`next dev` or a started `next start` — always exactly one
- *   process, never 7 concurrent workers): 10. The same `max: 3` cap was
- *   silently reused here too, and a single admin page routinely needs *more*
- *   than 3 simultaneous connections (the layout's admin lookup, a list
- *   page's now-parallel `count()` + `findMany()`, a filter dropdown's own
- *   query, and the header's own `Promise.all` of 7 dashboard-stat queries,
- *   the last two both now streamed via `<Suspense>` so they genuinely
- *   overlap the page's own fetch instead of waiting behind it). Every burst
- *   beyond 3 either queued for a free connection or opened a brand new one
- *   — and each new connection to a remote Postgres instance pays a real
- *   TCP+TLS+auth handshake (measured ~500-600ms against this project's
- *   Supabase instance, vs. ~75ms for a query on an already-warm one) — which
- *   was the actual, measured cause of "admin pages feel slow", not query
- *   complexity against this project's small dataset. 10 stays well under
- *   the session pooler's 15-connection cap for the one process using it.
+ * - **Runtime, traditional server** (`next dev` or a started `next start` on
+ *   a normal always-on host — always exactly one process, never 7 concurrent
+ *   workers): 10. The same `max: 3` cap was silently reused here too, and a
+ *   single admin page routinely needs *more* than 3 simultaneous connections
+ *   (the layout's admin lookup, a list page's now-parallel `count()` +
+ *   `findMany()`, a filter dropdown's own query, and the header's own
+ *   `Promise.all` of 7 dashboard-stat queries, the last two both now
+ *   streamed via `<Suspense>` so they genuinely overlap the page's own fetch
+ *   instead of waiting behind it). Every burst beyond 3 either queued for a
+ *   free connection or opened a brand new one — and each new connection to a
+ *   remote Postgres instance pays a real TCP+TLS+auth handshake (measured
+ *   ~500-600ms against this project's Supabase instance, vs. ~75ms for a
+ *   query on an already-warm one) — which was the actual, measured cause of
+ *   "admin pages feel slow", not query complexity against this project's
+ *   small dataset. 10 stays well under the session pooler's 15-connection
+ *   cap for the *one* process using it.
+ * - **Runtime, Vercel serverless** (`process.env.VERCEL === "1"`, deployment
+ *   target as of Sept 2026 — see CLAUDE.md "Current Project Status"): 1.
+ *   Unlike a traditional host, Vercel runs many concurrent, isolated function
+ *   instances for the *same* app under real traffic, each with its own copy
+ *   of this module and its own separate pool — the "10 stays under 15 for
+ *   the one process" reasoning above silently assumed exactly one process
+ *   and breaks the moment two instances are warm simultaneously (2 × 10 = 20
+ *   already exceeds the session pooler's 15-connection cap). Confirmed live:
+ *   `/products` failed with `PrismaClientKnownRequestError` /
+ *   `(EMAXCONNSESSION) max clients reached in session mode - max clients are
+ *   limited to pool_size: 15` shortly after this first went live on Vercel.
+ *   Fixed with two changes together, not one — a small per-instance pool
+ *   alone still doesn't scale across enough concurrent instances on the
+ *   session pooler, and switching poolers alone still lets one runaway
+ *   instance hoard 10 connections: (1) this file caps `max` at 1 per
+ *   instance so no single instance can hoard connections, and (2) the
+ *   deployed `DATABASE_URL` was moved to Supabase's **transaction** pooler
+ *   (port 6543, `pgbouncer=true` — see .env.example) instead of the session
+ *   pooler (port 5432), since transaction mode multiplexes many short-lived
+ *   clients over a much larger effective backend pool instead of dedicating
+ *   one backend connection per client. `DIRECT_URL` (prisma7.config.ts —
+ *   migrate/seed/studio only) deliberately stays on the session
+ *   pooler/direct connection; those CLI operations need real session
+ *   semantics (prepared statements, `migrate dev`'s shadow database) that
+ *   PgBouncer's transaction mode doesn't support.
  */
 import { PrismaClient } from "@/lib/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -49,6 +75,10 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 const isBuildPhase = process.env.NEXT_PHASE === PHASE_PRODUCTION_BUILD;
+// Vercel sets VERCEL=1 in both its build and runtime environments, so this
+// must be checked only where isBuildPhase is already false above — see the
+// "Runtime, Vercel serverless" case in the module doc comment.
+const isVercelServerlessRuntime = !isBuildPhase && process.env.VERCEL === "1";
 
 // Stage 10 — Secrets/Environment hardening: `DATABASE_URL` had no presence
 // check at all — an unset value would reach `PrismaPg` as `undefined` and
@@ -71,7 +101,7 @@ const supabaseCaCert = fs.readFileSync(path.resolve(process.cwd(), "certs/prod-c
 
 const adapter = new PrismaPg({
   connectionString: process.env.DATABASE_URL,
-  max: isBuildPhase ? 3 : 10,
+  max: isBuildPhase ? 3 : isVercelServerlessRuntime ? 1 : 10,
   // Database Security Audit (Sept 2026), TLS remediation — history:
   // `DATABASE_URL` had no `sslmode` param, and without an explicit `ssl`
   // option `pg` doesn't attempt TLS at all against this host — confirmed
